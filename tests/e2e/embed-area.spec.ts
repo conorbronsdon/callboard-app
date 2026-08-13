@@ -57,6 +57,7 @@ test("both widget cards render and the second one is independently configurable"
   page,
 }) => {
   await enterOrganizerWorkspace(page);
+  await page.getByTestId("admin-nav-group-content").locator("summary").click();
   await page.locator("header nav").getByRole("link", { name: "Embeds", exact: true }).click();
 
   // Two cards now share the page: the §6C register's rule is that no two
@@ -120,6 +121,7 @@ test("accent and density reach the rendered widget, and an injected accent is in
 
 test("the gallery card emits an HTML link snippet instead of an iframe", async ({ page }) => {
   await enterOrganizerWorkspace(page);
+  await page.getByTestId("admin-nav-group-content").locator("summary").click();
   await page.locator("header nav").getByRole("link", { name: "Embeds", exact: true }).click();
 
   await page.getByLabel("Format for Speaker gallery").selectOption("html");
@@ -145,6 +147,7 @@ test("the public schedule remains frame-denied", async ({ browser, baseURL }) =>
 test("organizer reaches Embeds through nav, captures code, and saves it", async ({ page }) => {
   await enterOrganizerWorkspace(page);
 
+  await page.getByTestId("admin-nav-group-content").locator("summary").click();
   await page.locator("header nav").getByRole("link", { name: "Embeds", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/embeds$/);
   await page.getByLabel("Theme for Schedule").selectOption("dark");
@@ -161,6 +164,7 @@ test("organizer reaches Embeds through nav, captures code, and saves it", async 
 
 test("disabling a saved embed makes its live handle return 404", async ({ page }) => {
   await enterOrganizerWorkspace(page);
+  await page.getByTestId("admin-nav-group-content").locator("summary").click();
   await page.locator("header nav").getByRole("link", { name: "Embeds", exact: true }).click();
 
   await page.getByLabel("Name for Schedule").fill(DISABLED_NAME);

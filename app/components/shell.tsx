@@ -2,7 +2,13 @@
  * Shared layout chrome. No client JS beyond React Router's own; public pages
  * must stay fast.
  */
-import { Form, NavLink } from "react-router";
+import { Form, NavLink, useLocation } from "react-router";
+
+import {
+  isAdminNavGroup,
+  type AdminNavEntry,
+  type AdminNavLink,
+} from "~/lib/admin-nav";
 
 /**
  * The one inline-link treatment. Underline-on-hover rather than always-on:
@@ -34,6 +40,26 @@ export const linkClass =
 export const eyebrowClass =
   "text-eyebrow font-semibold text-gray-500 uppercase dark:text-gray-400";
 
+function navLinkClass(isActive: boolean): string {
+  return [
+    "rounded-lg px-2.5 py-1.5 whitespace-nowrap transition-colors",
+    /*
+     * The active state has to win against a busy organizer nav. Three signals
+     * move together — a deeper fill, a heavier weight, and a solid underline —
+     * while inactive labels recede so the current location is immediate.
+     */
+    isActive
+      ? "bg-blue-100 font-semibold text-blue-800 shadow-[inset_0_-2px_0_0_var(--color-blue-600)] dark:bg-blue-950 dark:text-blue-100 dark:shadow-[inset_0_-2px_0_0_var(--color-blue-400)]"
+      : "font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100",
+  ].join(" ");
+}
+
+/** Match the path semantics NavLink uses for `end` and descendant routes. */
+function navLinkMatchesPath(pathname: string, item: AdminNavLink): boolean {
+  const itemPath = item.to.split(/[?#]/, 1)[0];
+  return pathname === itemPath || (!item.end && pathname.startsWith(`${itemPath}/`));
+}
+
 export function Shell({
   title,
   titleSize = "default",
@@ -50,10 +76,13 @@ export function Shell({
    */
   titleSize?: "default" | "display";
   subtitle?: string;
-  nav?: { to: string; label: string; end?: boolean }[];
+  nav?: AdminNavEntry[];
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const location = useLocation();
+  const hasGroupedNav = nav?.some(isAdminNavGroup) ?? false;
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
       <header className="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
@@ -88,39 +117,67 @@ export function Shell({
         </div>
         {nav?.length ? (
           /*
-           * The strip scrolls sideways on a phone (mobile-organizer.spec asserts
-           * it owns that overflow) but wraps from `md` up, where thirteen admin
-           * destinations otherwise clip the last two off the right edge.
+           * Eight organizer controls fit by wrapping at every width, so that
+           * grouped nav deliberately has no sideways strip on phones. Small
+           * flat public navs keep their original scrolling wrapper unchanged.
            */
-          <nav className="mx-auto flex max-w-6xl gap-x-1 gap-y-1 overflow-x-auto border-t border-gray-100 px-4 pt-2 pb-2.5 text-sm sm:px-6 md:flex-wrap md:overflow-x-visible dark:border-gray-800">
-            {nav.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  [
-                    "rounded-lg px-2.5 py-1.5 whitespace-nowrap transition-colors",
-                    /*
-                     * The active state has to win against EIGHTEEN siblings, and
-                     * it was losing: `bg-blue-50` + `ring-blue-200` is a 2%
-                     * tint under a 1px hairline, so on the organizer strip the
-                     * eye had to read all nineteen labels to find where it was.
-                     * Three signals now move together — a deeper fill, a
-                     * heavier weight, and a solid underline that survives even
-                     * when the strip is scrolled sideways on a phone — while
-                     * the inactive labels drop to gray-500 so the contrast is
-                     * made by the gap between them, not by the chip alone.
-                     */
-                    isActive
-                      ? "bg-blue-100 font-semibold text-blue-800 shadow-[inset_0_-2px_0_0_var(--color-blue-600)] dark:bg-blue-950 dark:text-blue-100 dark:shadow-[inset_0_-2px_0_0_var(--color-blue-400)]"
-                      : "font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100",
-                  ].join(" ")
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
+          <nav
+            className={
+              hasGroupedNav
+                ? "mx-auto flex max-w-6xl flex-wrap items-start gap-x-1 gap-y-1 border-t border-gray-100 px-4 pt-2 pb-2.5 text-sm sm:px-6 dark:border-gray-800"
+                : "mx-auto flex max-w-6xl gap-x-1 gap-y-1 overflow-x-auto border-t border-gray-100 px-4 pt-2 pb-2.5 text-sm sm:px-6 md:flex-wrap md:overflow-x-visible dark:border-gray-800"
+            }
+          >
+            {nav.map((entry) => {
+              if (!isAdminNavGroup(entry)) {
+                return (
+                  <NavLink
+                    key={entry.to}
+                    to={entry.to}
+                    end={entry.end}
+                    className={({ isActive }) => navLinkClass(isActive)}
+                  >
+                    {entry.label}
+                  </NavLink>
+                );
+              }
+
+              const isGroupActive = entry.items.some((item) =>
+                navLinkMatchesPath(location.pathname, item),
+              );
+              return (
+                <details
+                  key={entry.key}
+                  data-testid={`admin-nav-group-${entry.key}`}
+                  open={isGroupActive || undefined}
+                  className="group relative max-w-full"
+                >
+                  <summary
+                    className={`${navLinkClass(isGroupActive)} inline-flex cursor-pointer list-none items-center gap-1`}
+                  >
+                    {entry.label}
+                    <span
+                      aria-hidden="true"
+                      className="text-xs text-gray-400 transition-transform group-open:rotate-180 dark:text-gray-500"
+                    >
+                      ▾
+                    </span>
+                  </summary>
+                  <div className="mt-1 grid w-52 max-w-[calc(100vw-2rem)] gap-1 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg sm:absolute sm:left-0 sm:z-20 dark:border-gray-700 dark:bg-gray-900">
+                    {entry.items.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        end={item.end}
+                        className={({ isActive }) => `${navLinkClass(isActive)} block`}
+                      >
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                </details>
+              );
+            })}
           </nav>
         ) : null}
       </header>

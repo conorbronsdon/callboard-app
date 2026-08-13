@@ -57,6 +57,7 @@ test("an organizer creates and administers a new empty event", async ({ page }) 
   await expect(page.getByText("Nothing new in the last 7 days")).toBeVisible();
   await expect(page.getByText("Sam Speaker")).toHaveCount(0);
 
+  await page.getByTestId("admin-nav-group-programme").locator("summary").click();
   await adminNav(page).getByRole("link", { name: "Submissions", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/submissions$/);
   await expect(page.getByText("No abstracts in Pending yet.")).toBeVisible();

@@ -36,6 +36,7 @@ async function openContacts(page: Page) {
   await page.goto("/demo");
   await page.getByRole("button", { name: "Enter organizer workspace", exact: true }).click();
   await expect(page).toHaveURL(/\/admin$/, { timeout: 30_000 });
+  await page.getByTestId("admin-nav-group-people").locator("summary").click();
   await page.locator("header nav").getByRole("link", { name: "Contacts", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/contacts$/);
 }

@@ -36,6 +36,43 @@ export interface ProgrammeReadiness {
   stages: ReadinessStage[];
 }
 
+export interface EventSetupStep {
+  id:
+    | "cfp-form"
+    | "open-submissions"
+    | "reviewers"
+    | "review-decide"
+    | "schedule"
+    | "tell-speakers"
+    | "publish"
+    | "embed";
+  title: string;
+  description: string;
+  done: boolean;
+  to: string;
+  actionLabel: string;
+}
+
+export interface EventSetupChecklistInput {
+  cfpForms: number;
+  openCfpForms: number;
+  abstracts: number;
+  reviewsReady: boolean;
+  reviewRounds: number;
+  reviewers: number;
+  acceptedSessions: number;
+  unscheduledAcceptedSessions: number;
+  heldForUninformed: number;
+  unpublishedAcceptedSessions: number;
+  savedEmbeds: number;
+}
+
+export interface EventSetupChecklist {
+  steps: EventSetupStep[];
+  nextStepId: EventSetupStep["id"] | null;
+  allDone: boolean;
+}
+
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
@@ -255,5 +292,116 @@ export function deriveProgrammeReadiness(input: ProgrammeReadinessInput): Progra
         ? "No current blockers. Keep an eye on waiting stages as the event progresses."
         : `${plural(attentionCount, "area")} need attention before the programme is ready.`,
     stages,
+  };
+}
+
+function cfpFormStep(input: EventSetupChecklistInput): EventSetupStep {
+  return {
+    id: "cfp-form",
+    title: "Create your call-for-proposals form",
+    description: "Build the form speakers will use to submit a talk.",
+    done: input.cfpForms > 0,
+    to: "/admin/forms",
+    actionLabel: "Create a form",
+  };
+}
+
+function openSubmissionsStep(input: EventSetupChecklistInput): EventSetupStep {
+  return {
+    id: "open-submissions",
+    title: "Open submissions",
+    description: "Turn the form on so people can start submitting.",
+    done: input.openCfpForms > 0,
+    to: "/admin/forms?status=open",
+    actionLabel: "Open the form",
+  };
+}
+
+function reviewersStep(input: EventSetupChecklistInput): EventSetupStep {
+  return {
+    id: "reviewers",
+    title: "Invite reviewers",
+    description: "Set up a review round and add the people who'll read submissions.",
+    done: input.reviewRounds > 0 && input.reviewers > 0,
+    to: "/admin/reviews",
+    actionLabel: "Set up reviewers",
+  };
+}
+
+function reviewDecideStep(input: EventSetupChecklistInput): EventSetupStep {
+  return {
+    id: "review-decide",
+    title: "Review and decide",
+    description: "Work through submissions and accept or decline each one.",
+    done: input.abstracts > 0 && input.reviewsReady,
+    to: "/admin/submissions",
+    actionLabel: "Review submissions",
+  };
+}
+
+function scheduleStep(input: EventSetupChecklistInput): EventSetupStep {
+  return {
+    id: "schedule",
+    title: "Schedule accepted sessions",
+    description: "Give every accepted talk a time and a room.",
+    done: input.acceptedSessions > 0 && input.unscheduledAcceptedSessions === 0,
+    to: "/admin/agenda",
+    actionLabel: "Open the agenda",
+  };
+}
+
+function tellSpeakersStep(input: EventSetupChecklistInput): EventSetupStep {
+  return {
+    id: "tell-speakers",
+    title: "Tell speakers",
+    description: "Let accepted speakers know before the programme goes public.",
+    done: input.acceptedSessions > 0 && input.heldForUninformed === 0,
+    to: "/admin/agenda",
+    actionLabel: "Review speaker holds",
+  };
+}
+
+function publishStep(input: EventSetupChecklistInput): EventSetupStep {
+  return {
+    id: "publish",
+    title: "Publish the programme",
+    description: "Make the accepted schedule visible to the public.",
+    done: input.acceptedSessions > 0 && input.unpublishedAcceptedSessions === 0,
+    to: "/admin/agenda",
+    actionLabel: "Publish sessions",
+  };
+}
+
+function embedStep(input: EventSetupChecklistInput): EventSetupStep {
+  return {
+    id: "embed",
+    title: "Embed it on your site",
+    description: "Grab ready-to-paste code so your website shows the live programme.",
+    done: input.savedEmbeds > 0,
+    to: "/admin/embeds",
+    actionLabel: "Get embed code",
+  };
+}
+
+/** Derive the organizer's event-building journey from current event data. */
+export function deriveEventSetupChecklist(
+  input: EventSetupChecklistInput,
+): EventSetupChecklist {
+  const steps = [
+    cfpFormStep(input),
+    openSubmissionsStep(input),
+    reviewersStep(input),
+    reviewDecideStep(input),
+    scheduleStep(input),
+    tellSpeakersStep(input),
+    publishStep(input),
+    embedStep(input),
+  ];
+  const nextStepId = steps.find((step) => !step.done)?.id ?? null;
+
+  return {
+    steps,
+    nextStepId,
+    allDone: nextStepId === null,
   };
 }

@@ -47,17 +47,19 @@ test("mobile judge can enter the demo and navigate the organizer workflow", asyn
     expect(count, `${label} should have seeded data`).toBeGreaterThan(0);
   }
 
-  // The full admin menu intentionally scrolls inside its own strip at 375px.
-  // The page must stay fixed-width while links at both ends remain operable.
+  // Grouping makes the organizer nav short enough to wrap at 375px. The strip
+  // and the page both stay fixed-width while every disclosure remains usable.
   const firstNav = await adminNav(page);
   const navOverflow = await firstNav.evaluate((node) => node.scrollWidth - node.clientWidth);
-  expect(navOverflow, "admin nav should own its horizontal overflow").toBeGreaterThan(0);
+  expect(navOverflow, "admin nav should not scroll sideways").toBeLessThanOrEqual(1);
 
+  await page.getByTestId("admin-nav-group-cfp").locator("summary").click();
   await firstNav.getByRole("link", { name: "Forms", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Submission forms" })).toBeVisible();
   await expect(page.getByText("to review").first()).toBeVisible();
   await expectPhoneLayout(page);
 
+  await page.getByTestId("admin-nav-group-review").locator("summary").click();
   await (await adminNav(page)).getByRole("link", { name: "Review ops", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review operations" })).toBeVisible();
   // Renamed from "Reviewer teams" with ABS-02: reviewer pools are per ROUND,
@@ -70,6 +72,7 @@ test("mobile judge can enter the demo and navigate the organizer workflow", asyn
   await expect(page.getByRole("heading", { name: /Round 1 reviewer pool/ })).toBeVisible();
   await expectPhoneLayout(page);
 
+  await page.getByTestId("admin-nav-group-programme").locator("summary").click();
   await (await adminNav(page)).getByRole("link", { name: "Submissions", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Abstracts" })).toBeVisible();
   await page.getByRole("link", { name: /^Accepted \d+$/ }).click();

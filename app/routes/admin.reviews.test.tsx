@@ -381,6 +381,75 @@ describe("review operations", () => {
     expect(data.rounds[0].id).toBe(round!.id);
   });
 
+  it("keeps every review-operation control reachable while collapsing setup details", async () => {
+    const team = await createTeam();
+    const round = await createRound();
+    await post([
+      ["intent", "add-member"],
+      ["teamId", team!.id],
+      ["personId", fixture.adminId],
+    ]);
+    await post([
+      ["intent", "save-rubric"],
+      ["roundId", round!.id],
+      ["criterionType", "number"],
+      ["criterionKey", "fit"],
+      ["criterionLabel", "Programme fit"],
+      ["criterionMin", "1"],
+      ["criterionMax", "5"],
+      ["criterionWeight", "1"],
+      ["criterionOptions", ""],
+      ["criterionRemove", ""],
+    ]);
+    await post([
+      ["intent", "assign-team"],
+      ["roundId", round!.id],
+      ["teamId", team!.id],
+      ["sessionId", fixture.abstractIds[3]],
+    ]);
+
+    const data = await load();
+    const html = renderToStaticMarkup(<ReviewOperationsView {...data} />);
+    for (const label of [
+      "Create team",
+      "Add reviewer",
+      "Rename",
+      "Remove",
+      "Add",
+      "Create round",
+      "Save dates",
+      "Round 1 reviewer pool",
+      "Reviewer progress",
+      "Reviews complete",
+      "Reviewers finished",
+      "Remind reviewers",
+      "Blind this round for reviewers",
+      "Save blinding",
+      "Scoring rubric",
+      "Save rubric",
+      "Assign submissions",
+      "Filter by track",
+      "Assign selected",
+      "Assign all matching",
+      "Assign selected to reviewer",
+      "Current assignments",
+      "Unassign",
+    ]) {
+      expect(html, `${label} should remain server-rendered`).toContain(label);
+    }
+
+    const detailsTagFor = (label: string) => {
+      const labelIndex = html.indexOf(label);
+      const detailsIndex = html.lastIndexOf("<details", labelIndex);
+      return html.slice(detailsIndex, html.indexOf(">", detailsIndex) + 1);
+    };
+    expect(detailsTagFor("Scoring rubric")).not.toContain(" open");
+    expect(detailsTagFor("Reviewer progress")).toContain(" open");
+    expect(detailsTagFor("Assign submissions")).toContain(" open");
+    expect(detailsTagFor("Current assignments")).not.toContain(" open");
+    expect(html.match(/<details open/g)).toHaveLength(2);
+  });
+
   it("must fire: reports selected-event reviewer completion and unstaffed assignments", async () => {
     const team = await createTeam();
     const emptyTeam = await createTeam("No members");
@@ -431,6 +500,11 @@ describe("review operations", () => {
     expect(html).toContain("1 / 2");
     expect(html).toContain("1 left");
     expect(html).toContain("1 team assignment has no reviewers.");
+    const headerStart = html.indexOf("Round 1 · Round 1");
+    const header = html.slice(headerStart, html.indexOf("<details", headerStart));
+    expect(header).toContain("1 / 2 reviews complete · 1 left");
+    expect(header).toContain("1 team assignment has no reviewers.");
+    expect(header).toContain("Remind reviewers");
   });
 
   it("must not fire: excludes reviewer progress from another event", async () => {

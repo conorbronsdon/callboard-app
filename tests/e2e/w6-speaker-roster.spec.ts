@@ -10,6 +10,7 @@ async function openOrganizerRoster(page: Page) {
   await page.goto("/demo");
   await page.getByRole("button", { name: "Enter organizer workspace", exact: true }).click();
   await expect(page).toHaveURL(/\/admin$/);
+  await page.getByTestId("admin-nav-group-programme").locator("summary").click();
   await page.locator("header nav").getByRole("link", { name: "Speakers", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/speakers$/);
 }

@@ -2,6 +2,7 @@ import { Link, Outlet, useLocation } from "react-router";
 
 import { buttonClass } from "~/components/portal-ui";
 import { eyebrowClass, linkClass, Shell, SignOutButton } from "~/components/shell";
+import { buildAdminNav } from "~/lib/admin-nav";
 import { requireAdmin } from "~/lib/auth/auth.server";
 import { currentEvent, listEvents } from "~/lib/event.server";
 import type { Route } from "./+types/admin.layout";
@@ -106,35 +107,7 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
     <Shell
       title="Admin"
       subtitle={loaderData.event?.name ?? "No event set up yet"}
-      nav={[
-        { to: "/admin", label: "Dashboard", end: true },
-        { to: "/admin/forms", label: "Forms" },
-        /*
-         * `/admin/portal-forms` shipped routed but unlinked — nothing in the
-         * app pointed at it, so the speaker-question builder was reachable
-         * only by typing the URL. Speaker custom fields start here, so the
-         * entry sits beside the CFP builder it is the smaller sibling of.
-         */
-        { to: "/admin/portal-forms", label: "Portal forms" },
-        { to: "/admin/submissions", label: "Submissions" },
-        { to: "/admin/reviews", label: "Review ops" },
-        { to: reviewerWorkspace, label: "Reviewer workspace" },
-        { to: "/admin/resources", label: "Resources" },
-        { to: "/admin/agenda", label: "Agenda" },
-        { to: "/admin/embeds", label: "Embeds" },
-        { to: "/admin/contacts", label: "Contacts" },
-        { to: "/admin/pipeline", label: "Pipeline" },
-        { to: "/admin/speakers", label: "Speakers" },
-        { to: "/admin/tasks", label: "Tasks" },
-        { to: "/admin/files", label: "Files" },
-        { to: "/admin/view-as", label: "View as" },
-        { to: "/admin/templates", label: "Templates" },
-        { to: "/admin/comms", label: "Comms" },
-        { to: "/admin/settings", label: "Settings" },
-        { to: "/admin/integrations", label: "Integrations" },
-        { to: "/admin/api-keys", label: "API keys" },
-        { to: "/admin/jobs", label: "Jobs" },
-      ]}
+      nav={buildAdminNav(reviewerWorkspace)}
       actions={
         <>
           <span className="hidden text-gray-600 sm:inline dark:text-gray-400">

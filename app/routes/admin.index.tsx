@@ -2,6 +2,7 @@ import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { Link } from "react-router";
 
 import { EmbedGrabLink } from "~/components/embed-grab";
+import { EventSetupChecklistPanel } from "~/components/event-setup-checklist";
 import { buttonClass } from "~/components/portal-ui";
 import { eyebrowClass, LaneStub } from "~/components/shell";
 import { chunkForBind, getDb } from "~/db/client.server";
@@ -10,15 +11,20 @@ import {
   people,
   reviewAssignments,
   reviewRounds,
+  reviewTeamMembers,
+  reviewTeams,
   sessionParticipants,
   sessions,
   tasks,
 } from "~/db/schema";
 import { isScheduled } from "~/lib/agenda/conflicts";
+import { partitionByInformed } from "~/lib/agenda/informed-gate.server";
 import { loadProgramme } from "~/lib/agenda/programme.server";
 import { requireAdmin } from "~/lib/auth/auth.server";
 import { currentEvent } from "~/lib/event.server";
+import { loadEventEmbedSettings } from "~/lib/embeds.server";
 import {
+  deriveEventSetupChecklist,
   deriveProgrammeReadiness,
   type ProgrammeReadiness,
   type ReadinessStatus,
@@ -38,6 +44,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const weekAgo = new Date(Date.now() - WEEK_MS);
   const db = getDb();
+  const programmePromise = loadProgramme(event.id);
+  const acceptedProgrammePromise = programmePromise.then((programme) =>
+    programme.sessions.filter((session) => session.status === "accepted"),
+  );
+  const acceptedSessionIdsPromise = acceptedProgrammePromise.then((acceptedProgramme) =>
+    acceptedProgramme.map((session) => session.id),
+  );
   const [
     abstracts,
     accepted,
@@ -48,6 +61,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     assignmentRows,
     speakerRows,
     programme,
+    reviewRoundRows,
+    reviewerRows,
+    embedState,
+    informedPartition,
   ] = await Promise.all([
     db
       .select({ n: sql<number>`count(*)` })
@@ -129,7 +146,20 @@ export async function loader({ request }: Route.LoaderArgs) {
           inArray(sessionParticipants.role, ["speaker", "co_speaker"]),
         ),
       ),
-    loadProgramme(event.id),
+    programmePromise,
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(reviewRounds)
+      .where(eq(reviewRounds.eventId, event.id)),
+    db
+      .select({ n: sql<number>`count(distinct ${reviewTeamMembers.personId})` })
+      .from(reviewTeamMembers)
+      .innerJoin(reviewTeams, eq(reviewTeams.id, reviewTeamMembers.teamId))
+      .where(eq(reviewTeams.eventId, event.id)),
+    loadEventEmbedSettings(event.id),
+    acceptedSessionIdsPromise.then((acceptedSessionIds) =>
+      partitionByInformed(db, acceptedSessionIds),
+    ),
   ]);
 
   const formCounts = new Map(formRows.map((row) => [row.status, Number(row.n)]));
@@ -137,8 +167,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     .filter((row) => row.status === "pending")
     .map((row) => row.id);
   const assignedPendingIds = new Set(assignmentRows.map((row) => row.sessionId));
-  const acceptedProgramme = programme.sessions.filter((session) => session.status === "accepted");
-  const acceptedSessionIds = new Set(acceptedProgramme.map((session) => session.id));
+  const acceptedProgramme = await acceptedProgrammePromise;
+  const acceptedSessionIds = await acceptedSessionIdsPromise;
+  const acceptedSessionIdSet = new Set(acceptedSessionIds);
   const acceptedSpeakerProfiles = new Map(
     speakerRows.map((row) => [row.id, { bio: row.bio, headshotKey: row.headshotKey }]),
   );
@@ -164,33 +195,62 @@ export async function loader({ request }: Route.LoaderArgs) {
     )
   ).flat();
 
+  const cfpForms = [...formCounts.values()].reduce((sum, count) => sum + count, 0);
+  const openCfpForms = formCounts.get("open") ?? 0;
+  const unassignedPendingAbstracts = pendingIds.filter(
+    (id) => !assignedPendingIds.has(id),
+  ).length;
+  const queuedDecisions = abstractRows.filter(
+    (row) => row.status === "accept_queue" || row.status === "decline_queue",
+  ).length;
+  const reviewsReady =
+    pendingIds.length === 0 && unassignedPendingAbstracts === 0 && queuedDecisions === 0;
+  const unscheduledAcceptedSessions = acceptedProgramme.filter(
+    (session) => !isScheduled(session) || !session.roomId,
+  ).length;
+  const unpublishedAcceptedSessions = acceptedProgramme.filter(
+    (session) => !session.isPublic,
+  ).length;
+
   const readiness = deriveProgrammeReadiness({
-    cfpForms: [...formCounts.values()].reduce((sum, count) => sum + count, 0),
-    openCfpForms: formCounts.get("open") ?? 0,
+    cfpForms,
+    openCfpForms,
     abstracts: abstractRows.length,
     pendingAbstracts: pendingIds.length,
-    unassignedPendingAbstracts: pendingIds.filter((id) => !assignedPendingIds.has(id)).length,
-    queuedDecisions: abstractRows.filter(
-      (row) => row.status === "accept_queue" || row.status === "decline_queue",
-    ).length,
+    unassignedPendingAbstracts,
+    queuedDecisions,
     acceptedSpeakers: acceptedSpeakerProfiles.size,
     incompleteSpeakerProfiles: [...acceptedSpeakerProfiles.values()].filter(
       (person) => !person.bio?.trim() || !person.headshotKey,
     ).length,
     outstandingSpeakerTasks: openAcceptedTaskRows.length,
     acceptedSessions: acceptedProgramme.length,
-    unscheduledAcceptedSessions: acceptedProgramme.filter(
-      (session) => !isScheduled(session) || !session.roomId,
-    ).length,
-    unpublishedAcceptedSessions: acceptedProgramme.filter((session) => !session.isPublic).length,
+    unscheduledAcceptedSessions,
+    unpublishedAcceptedSessions,
     agendaConflicts: programme.conflicts.filter(
-      (conflict) => acceptedSessionIds.has(conflict.a.id) || acceptedSessionIds.has(conflict.b.id),
+      (conflict) =>
+        acceptedSessionIdSet.has(conflict.a.id) || acceptedSessionIdSet.has(conflict.b.id),
     ).length,
+  });
+
+  const checklist = deriveEventSetupChecklist({
+    cfpForms,
+    openCfpForms,
+    abstracts: abstractRows.length,
+    reviewsReady,
+    reviewRounds: Number(reviewRoundRows[0]?.n ?? 0),
+    reviewers: Number(reviewerRows[0]?.n ?? 0),
+    acceptedSessions: acceptedProgramme.length,
+    unscheduledAcceptedSessions,
+    heldForUninformed: informedPartition.held.length,
+    unpublishedAcceptedSessions,
+    savedEmbeds: embedState.embeds.length,
   });
 
   return {
     event: { name: event.name, slug: event.slug },
     readiness,
+    checklist,
     counts: {
       abstracts: abstracts[0]?.n ?? 0,
       accepted: accepted[0]?.n ?? 0,
@@ -214,6 +274,7 @@ export default function AdminDashboard({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="space-y-6">
+      <EventSetupChecklistPanel checklist={loaderData.checklist} />
       <ProgrammeReadinessPanel readiness={readiness} />
 
       {/*

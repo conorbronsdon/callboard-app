@@ -1373,6 +1373,32 @@ export function AbstractsView({
         }
       />
 
+      {/*
+        * View toggle only — the list route's own internals (loader/action/sort)
+        * are untouched here. The board is a separate route
+        * (`admin.submissions.board.tsx`) with its own loader/action that reuses
+        * the same `set-status` transition this page's `StatusCell` already
+        * performs; see that file for the board itself.
+        */}
+      <nav
+        aria-label="Submission views"
+        className="flex flex-wrap gap-1 border-b border-gray-200 pb-2 dark:border-gray-800"
+      >
+        <a
+          href={listUrl(tab, trackId, "", sort)}
+          aria-current="page"
+          className="rounded-lg px-3 py-1.5 text-sm whitespace-nowrap transition-colors bg-blue-100 font-semibold text-blue-800 shadow-[inset_0_-2px_0_0_var(--color-blue-600)] dark:bg-blue-950 dark:text-blue-100 dark:shadow-[inset_0_-2px_0_0_var(--color-blue-400)]"
+        >
+          List
+        </a>
+        <a
+          href="/admin/submissions/board"
+          className="rounded-lg px-3 py-1.5 text-sm whitespace-nowrap transition-colors font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+        >
+          Board
+        </a>
+      </nav>
+
       {confirming && queueTotal > 0 ? (
         <section
           data-testid="commit-confirm"

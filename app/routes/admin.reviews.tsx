@@ -1084,29 +1084,40 @@ export function ReviewOperationsView({
                   <p className="w-full text-sm text-gray-600 dark:text-gray-400">
                     {roundDateLabel(round.opensAt, round.closesAt, event.timezone)}
                   </p>
+                  <div className="mt-2 flex w-full flex-wrap items-center gap-3">
+                    {round.progress.expectedReviews > 0 ? (
+                      <p className="text-sm font-medium tabular-nums">
+                        {round.progress.completedReviews} / {round.progress.expectedReviews} reviews complete · {round.progress.remainingReviews} left
+                      </p>
+                    ) : null}
+                    {round.progress.unstaffedAssignments > 0 ? (
+                      <p className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100" role="status">
+                        {round.progress.unstaffedAssignments} team assignment{round.progress.unstaffedAssignments === 1 ? " has" : "s have"} no reviewers.
+                      </p>
+                    ) : null}
+                    <form method="post" className="sm:ml-auto">
+                      <input type="hidden" name="intent" value="remind-reviewers" />
+                      <input type="hidden" name="roundId" value={round.id} />
+                      <button
+                        disabled={round.progress.remainingReviews === 0}
+                        className={GHOST}
+                      >
+                        Remind reviewers
+                      </button>
+                    </form>
+                  </div>
                 </div>
-                <div className="p-4">
-                <form method="post" className="flex flex-wrap gap-2">
-                  <input type="hidden" name="intent" value="save-round-dates" />
-                  <input type="hidden" name="roundId" value={round.id} />
-                  <input
-                    type="date"
-                    name="opensAt"
-                    aria-label={`Round ${round.ordinal} opens`}
-                    defaultValue={roundDateInput(round.opensAt, event.timezone)}
-                    className={FIELD}
-                  />
-                  <input
-                    type="date"
-                    name="closesAt"
-                    aria-label={`Round ${round.ordinal} closes`}
-                    defaultValue={roundDateInput(round.closesAt, event.timezone)}
-                    className={FIELD}
-                  />
-                  <button className={GHOST}>Save dates</button>
-                </form>
 
-                <div className="mt-4">
+                {/*
+                  * Deliberately OUTSIDE the "Dates, committees & rubric" details
+                  * and ahead of it in source order: mobile-organizer.spec.ts
+                  * asserts this heading is VISIBLE the moment a round exists, not
+                  * merely present in the markup, and the provisioning test slices
+                  * the rendered HTML between this literal heading text and
+                  * "Reviewer progress" — both requirements mean this block stays
+                  * always-open and stays right here.
+                  */}
+                <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
                   <h5 className="text-sm font-semibold">Round {round.ordinal} reviewer pool</h5>
                   {roundTeams.length ? (
                     <ul className="mt-2 space-y-1 text-sm">
@@ -1125,88 +1136,15 @@ export function ReviewOperationsView({
                 </div>
 
                 {/*
-                  * Every sibling group inside a round is ruled off from the one
-                  * above it. They were separated by `mt-3` alone — the same gap
-                  * that sits between a field and its own hint — so dates,
-                  * progress, blinding, the rubric grid and the assignment picker
-                  * ran together as one 900px form.
+                  * Blinding sits OUTSIDE any details, same reasoning as the
+                  * reviewer-pool block above it: review-blinding.spec.ts checks
+                  * this box and clicks "Save blinding" immediately after
+                  * navigating to this page, with nothing opened first.
                   */}
-                <section
-                  aria-labelledby={`review-progress-${round.id}`}
-                  className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-700"
-                >
-                  <h5 id={`review-progress-${round.id}`} className={`mb-3 ${eyebrowClass}`}>Reviewer progress</h5>
-                  {round.progress.expectedReviews === 0 ? (
-                    <p className="mt-2 text-sm text-gray-500">
-                      Assign submissions to a team with reviewers to start tracking progress.
-                    </p>
-                  ) : (
-                    <>
-                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                        <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950">
-                          <p className="text-xs text-gray-500">Reviews complete</p>
-                          <p className="mt-1 text-2xl font-semibold tabular-nums">{round.progress.completedReviews} / {round.progress.expectedReviews}</p>
-                        </div>
-                        <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950">
-                          <p className="text-xs text-gray-500">Reviews remaining</p>
-                          <p className="mt-1 text-2xl font-semibold tabular-nums">{round.progress.remainingReviews}</p>
-                        </div>
-                        <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950">
-                          <p className="text-xs text-gray-500">Reviewers finished</p>
-                          <p className="mt-1 text-2xl font-semibold tabular-nums">{round.progress.completedReviewers} / {round.progress.reviewerCount}</p>
-                        </div>
-                      </div>
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                          <thead className="text-xs text-gray-500">
-                            <tr>
-                              <th scope="col" className="pb-2 pr-4 font-medium">Reviewer</th>
-                              <th scope="col" className="pb-2 pr-4 font-medium">Team</th>
-                              <th scope="col" className="pb-2 text-right font-medium">Progress</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {round.progress.reviewers.map((reviewer) => (
-                              <tr key={reviewer.personId}>
-                                <td className="py-2 pr-4">
-                                  <span className="font-medium">{reviewer.name ?? reviewer.email}</span>
-                                  {reviewer.name ? <span className="block text-xs text-gray-500">{reviewer.email}</span> : null}
-                                </td>
-                                <td className="py-2 pr-4 text-gray-600 dark:text-gray-300">{reviewer.teamNames.join(", ")}</td>
-                                <td className="py-2 text-right font-medium">
-                                  {reviewer.completed} / {reviewer.assigned}
-                                  <span className={`ml-2 text-xs ${reviewer.remaining === 0 ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
-                                    {reviewer.remaining === 0 ? "Complete" : `${reviewer.remaining} left`}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                  {round.progress.unstaffedAssignments > 0 ? (
-                    <p className="mt-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100" role="status">
-                      {round.progress.unstaffedAssignments} team assignment{round.progress.unstaffedAssignments === 1 ? " has" : "s have"} no reviewers.
-                    </p>
-                  ) : null}
-                  <form method="post" className="mt-3">
-                    <input type="hidden" name="intent" value="remind-reviewers" />
-                    <input type="hidden" name="roundId" value={round.id} />
-                    <button
-                      disabled={round.progress.remainingReviews === 0}
-                      className={GHOST}
-                    >
-                      Remind reviewers
-                    </button>
-                  </form>
-                </section>
-
-                <form method="post" className="mt-5 space-y-2 border-t border-gray-200 pt-4 dark:border-gray-700">
+                <form method="post" className="space-y-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
                   <input type="hidden" name="intent" value="set-round-blinding" />
                   <input type="hidden" name="roundId" value={round.id} />
-                  <p className={`mb-3 ${eyebrowClass}`}>Blinding</p>
+                  <p className={eyebrowClass}>Blinding</p>
                   <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" name="blind" defaultChecked={round.blind} />
                     Blind this round for reviewers
@@ -1215,6 +1153,35 @@ export function ReviewOperationsView({
                     Reviewers see the abstract without the speaker&apos;s name, email, or affiliation. Organizers always see both.
                   </p>
                   <button className={GHOST}>Save blinding</button>
+                </form>
+
+                <details className="group border-b border-gray-200 dark:border-gray-700">
+                  <summary className={`flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 ${eyebrowClass}`}>
+                    <span>Dates &amp; rubric</span>
+                    <span aria-hidden="true" className="text-xs text-gray-400 dark:text-gray-500">▾</span>
+                  </summary>
+                  <div className="px-4 pb-4">
+                <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
+                  Setup controls are usually configured once; the rubric locks after the first submitted review.
+                </p>
+                <form method="post" className="flex flex-wrap gap-2">
+                  <input type="hidden" name="intent" value="save-round-dates" />
+                  <input type="hidden" name="roundId" value={round.id} />
+                  <input
+                    type="date"
+                    name="opensAt"
+                    aria-label={`Round ${round.ordinal} opens`}
+                    defaultValue={roundDateInput(round.opensAt, event.timezone)}
+                    className={FIELD}
+                  />
+                  <input
+                    type="date"
+                    name="closesAt"
+                    aria-label={`Round ${round.ordinal} closes`}
+                    defaultValue={roundDateInput(round.closesAt, event.timezone)}
+                    className={FIELD}
+                  />
+                  <button className={GHOST}>Save dates</button>
                 </form>
 
                 <form method="post" className="mt-5 space-y-2 border-t border-gray-200 pt-4 dark:border-gray-700">
@@ -1277,10 +1244,77 @@ export function ReviewOperationsView({
                   <p className="text-xs text-gray-500">Keys are stable data identifiers. Choose &quot;Dropdown&quot; and list one option per line (or comma-separated) for a non-numeric criterion — dropdown answers are recorded per review and reported as a distribution, never folded into the numeric average. Choose &quot;Free text&quot; for an optional reviewer comment criterion; its range, weight, and options are ignored. Use the blank row to add a criterion, or set a row to Remove. Rubrics lock after the first submitted review.</p>
                   <button disabled={round.submittedReviews > 0} className={GHOST}>Save rubric</button>
                 </form>
+                  </div>
+                </details>
 
-                <div className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-700">
-                  <p className={eyebrowClass}>Assign submissions</p>
-                </div>
+                <details open className="group border-b border-gray-200 dark:border-gray-700">
+                  <summary
+                    id={`review-progress-${round.id}`}
+                    className={`flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 ${eyebrowClass}`}
+                  >
+                    <span>Reviewer progress</span>
+                    <span aria-hidden="true" className="text-xs text-gray-400 dark:text-gray-500">▾</span>
+                  </summary>
+                  <div aria-labelledby={`review-progress-${round.id}`} className="px-4 pb-4">
+                    {round.progress.expectedReviews === 0 ? (
+                      <p className="text-sm text-gray-500">
+                        Assign submissions to a team with reviewers to start tracking progress.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950">
+                            <p className="text-xs text-gray-500">Reviews complete</p>
+                            <p className="mt-1 text-2xl font-semibold tabular-nums">{round.progress.completedReviews} / {round.progress.expectedReviews}</p>
+                          </div>
+                          <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950">
+                            <p className="text-xs text-gray-500">Reviews remaining</p>
+                            <p className="mt-1 text-2xl font-semibold tabular-nums">{round.progress.remainingReviews}</p>
+                          </div>
+                          <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950">
+                            <p className="text-xs text-gray-500">Reviewers finished</p>
+                            <p className="mt-1 text-2xl font-semibold tabular-nums">{round.progress.completedReviewers} / {round.progress.reviewerCount}</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 overflow-x-auto">
+                          <table className="w-full text-left text-sm">
+                            <thead className="text-xs text-gray-500">
+                              <tr>
+                                <th scope="col" className="pb-2 pr-4 font-medium">Reviewer</th>
+                                <th scope="col" className="pb-2 pr-4 font-medium">Team</th>
+                                <th scope="col" className="pb-2 text-right font-medium">Progress</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                              {round.progress.reviewers.map((reviewer) => (
+                                <tr key={reviewer.personId}>
+                                  <td className="py-2 pr-4">
+                                    <span className="font-medium">{reviewer.name ?? reviewer.email}</span>
+                                    {reviewer.name ? <span className="block text-xs text-gray-500">{reviewer.email}</span> : null}
+                                  </td>
+                                  <td className="py-2 pr-4 text-gray-600 dark:text-gray-300">{reviewer.teamNames.join(", ")}</td>
+                                  <td className="py-2 text-right font-medium">
+                                    {reviewer.completed} / {reviewer.assigned}
+                                    <span className={`ml-2 text-xs ${reviewer.remaining === 0 ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
+                                      {reviewer.remaining === 0 ? "Complete" : `${reviewer.remaining} left`}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </details>
+
+                <details open className="group border-b border-gray-200 dark:border-gray-700">
+                  <summary className={`flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 ${eyebrowClass}`}>
+                    <span>Assign submissions</span>
+                    <span aria-hidden="true" className="text-xs text-gray-400 dark:text-gray-500">▾</span>
+                  </summary>
+                  <div className="px-4 pb-4">
                 <form method="get" className="mt-3 flex flex-wrap gap-2">
                   <select
                     name="assignTrack"
@@ -1340,9 +1374,15 @@ export function ReviewOperationsView({
                     ))}
                   </div>
                 </form>
+                  </div>
+                </details>
 
-                <div className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-700">
-                  <h5 className={`mb-3 ${eyebrowClass}`}>Current assignments</h5>
+                <details className="group">
+                  <summary className={`flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 ${eyebrowClass}`}>
+                    <span>Current assignments</span>
+                    <span aria-hidden="true" className="text-xs text-gray-400 dark:text-gray-500">▾</span>
+                  </summary>
+                  <div className="px-4 pb-4">
                   {ownAssignments.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-gray-300 p-5 text-center dark:border-gray-700">
                       <p className="text-sm font-medium">Nothing assigned in this round yet</p>
@@ -1396,8 +1436,8 @@ export function ReviewOperationsView({
                       </table>
                     </div>
                   )}
-                </div>
-                </div>
+                  </div>
+                </details>
               </article>
             );
           })}

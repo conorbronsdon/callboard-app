@@ -6,14 +6,26 @@
  * `openTasks` ignored `in_progress`, so a speaker who had started every task
  * looked finished.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { events, forms, people, sessionParticipants, sessions, tasks } from "~/db/schema";
+import { EventSetupChecklistPanel } from "~/components/event-setup-checklist";
+import {
+  events,
+  forms,
+  people,
+  reviewRounds,
+  reviewTeamMembers,
+  reviewTeams,
+  sessionParticipants,
+  sessions,
+  tasks,
+} from "~/db/schema";
+import { upsertSavedEmbed } from "~/lib/embeds";
 import { signedInGet } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
-import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
+import { OTHER_EVENT_ID, seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
 import { ProgrammeReadinessPanel, loader } from "./admin.index";
 
@@ -303,5 +315,140 @@ describe("admin dashboard readiness", () => {
     expect(other.readiness?.stages.find((stage) => stage.id === "reviews")?.details).toContain(
       "1 pending submission without a review assignment.",
     );
+  });
+});
+
+describe("admin dashboard event setup checklist", () => {
+  it("renders the zero-row journey from the first step", async () => {
+    await ctx.db.delete(tasks);
+    await ctx.db.delete(sessionParticipants);
+    await ctx.db.delete(sessions);
+    await ctx.db.delete(forms);
+
+    const data = await load();
+    if (!data.event) throw new Error("Expected the seeded event.");
+    expect(data.checklist.nextStepId).toBe("cfp-form");
+    expect(data.checklist.steps.every((step) => !step.done)).toBe(true);
+
+    const html = renderToStaticMarkup(
+      EventSetupChecklistPanel({ checklist: data.checklist }),
+    );
+    expect(html).toContain("Set up your event");
+    expect(html).toContain('href="/admin/forms"');
+    expect(html).toContain("Not yet");
+  });
+
+  it("derives the seeded event's first setup action", async () => {
+    const data = await load();
+    if (!data.event) throw new Error("Expected the seeded event.");
+
+    expect(data.checklist.allDone).toBe(false);
+    expect(data.checklist.steps.find((step) => step.id === "cfp-form")?.done).toBe(true);
+    expect(data.checklist.steps.find((step) => step.id === "open-submissions")?.done).toBe(
+      true,
+    );
+    expect(data.checklist.steps.find((step) => step.id === "reviewers")?.done).toBe(false);
+    expect(data.checklist.nextStepId).toBe("reviewers");
+  });
+
+  it("server-renders every step and the selected next action", async () => {
+    const data = await load();
+    if (!data.event) throw new Error("Expected the seeded event.");
+    const html = renderToStaticMarkup(
+      EventSetupChecklistPanel({ checklist: data.checklist }),
+    );
+
+    expect(html).toContain("Set up your event");
+    expect(html).toContain('href="/admin/reviews"');
+    expect(html).toContain("Start here");
+    expect(html).not.toContain("Your event is live");
+  });
+
+  it("collapses to a quiet closed summary once every step is done", async () => {
+    await ctx.db
+      .update(sessions)
+      .set({ status: "declined" })
+      .where(
+        and(
+          eq(sessions.eventId, fixture.eventId),
+          eq(sessions.isAbstract, true),
+          inArray(sessions.status, ["pending", "accept_queue", "decline_queue"]),
+        ),
+      );
+    await ctx.db.insert(reviewRounds).values({
+      id: "primary-review-round",
+      eventId: fixture.eventId,
+      name: "Programme review",
+      ordinal: 1,
+    });
+    await ctx.db.insert(reviewTeams).values({
+      id: "primary-review-team",
+      eventId: fixture.eventId,
+      name: "Programme committee",
+    });
+    await ctx.db.insert(reviewTeamMembers).values({
+      teamId: "primary-review-team",
+      personId: fixture.adminId,
+    });
+    const event = await ctx.db.query.events.findFirst({
+      where: eq(events.id, fixture.eventId),
+    });
+    const settings = upsertSavedEmbed(event?.settings, {
+      id: "programme-embed",
+      name: "Programme",
+      widget: "schedule",
+      theme: "auto",
+      track: null,
+      format: "iframe",
+      density: "full",
+      accent: null,
+      customCss: null,
+      hiddenFields: [],
+      enabled: true,
+      createdAt: Date.now(),
+    });
+    await ctx.db
+      .update(events)
+      .set({ settings })
+      .where(eq(events.id, fixture.eventId));
+
+    const data = await load();
+    if (!data.event) throw new Error("Expected the seeded event.");
+    expect(data.checklist.allDone).toBe(true);
+    expect(data.checklist.nextStepId).toBeNull();
+
+    const html = renderToStaticMarkup(
+      EventSetupChecklistPanel({ checklist: data.checklist }),
+    );
+    expect(html).toContain("Your event is live");
+    expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+  });
+
+  it("does not count reviewer setup from another event", async () => {
+    await ctx.db.insert(events).values({
+      id: OTHER_EVENT_ID,
+      name: "Other Conference",
+      slug: "other-conference-checklist",
+    });
+    await ctx.db.insert(reviewRounds).values({
+      id: "other-review-round",
+      eventId: OTHER_EVENT_ID,
+      name: "Other review",
+      ordinal: 1,
+    });
+    await ctx.db.insert(reviewTeams).values({
+      id: "other-review-team",
+      eventId: OTHER_EVENT_ID,
+      name: "Other committee",
+    });
+    await ctx.db.insert(reviewTeamMembers).values({
+      teamId: "other-review-team",
+      personId: fixture.adminId,
+    });
+
+    const data = await load();
+    if (!data.event) throw new Error("Expected the seeded event.");
+    expect(data.checklist.steps.find((step) => step.id === "reviewers")?.done).toBe(false);
+    expect(data.checklist.nextStepId).toBe("reviewers");
   });
 });

@@ -64,6 +64,10 @@ export default [
     route("forms", "routes/admin.forms.tsx"),
     route("forms/:formId/:step", "routes/admin.forms.edit.tsx"),
     route("submissions", "routes/admin.submissions.tsx"),
+    // Kanban view of the same submissions, by review stage — reuses the same
+    // audited status-transition path as the list's per-row control. See
+    // app/routes/admin.submissions.board.tsx.
+    route("submissions/board", "routes/admin.submissions.board.tsx"),
     route("reviews", "routes/admin.reviews.tsx"),
     route("resources", "routes/admin.resources.tsx"),
     // Abstract drill-in + the speaker profile its speaker names link to.

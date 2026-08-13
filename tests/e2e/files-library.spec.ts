@@ -19,6 +19,7 @@ test("the organizer nav reaches a library showing versions, Latest and both side
   page,
 }) => {
   await enterOrganizerWorkspace(page);
+  await page.getByTestId("admin-nav-group-content").locator("summary").click();
   await page.locator("header nav").getByRole("link", { name: "Files", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/files$/);
 

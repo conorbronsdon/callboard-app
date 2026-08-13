@@ -67,6 +67,7 @@ test("an organizer switches events and the selection follows plain nav clicks", 
 
   /* ── two plain nav clicks, no query params ──────────────────────────── */
 
+  await page.getByTestId("admin-nav-group-programme").locator("summary").click();
   await page.locator("header nav").getByRole("link", { name: "Submissions", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/submissions$/);
   // Loader-derived content FIRST. React Router keeps the previous page mounted
