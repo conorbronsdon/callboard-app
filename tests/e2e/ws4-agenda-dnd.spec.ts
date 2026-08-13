@@ -29,6 +29,36 @@ function attrValues(html: string, attr: string): string[] {
 }
 
 /**
+ * Fail loudly when a drag would start or end off-screen.
+ *
+ * `page.mouse` works in VIEWPORT coordinates, but `boundingBox()` reports where
+ * an element sits in the page without scrolling to it, and `toBeVisible()` is
+ * satisfied by an element that is merely rendered — below the fold included.
+ * Press at a y beyond the viewport and the mouse lands on nothing: dnd-kit
+ * never arms, no form is submitted, and the only symptom is the navigation wait
+ * timing out fifteen seconds later with nothing to read.
+ *
+ * How far down the board's first card sits is decided by the DATA, not the
+ * code: the informed-holds banner (#147) appears whenever a scheduled but
+ * unpublished session still owes its speaker a letter, a full tray is taller
+ * than an empty one, and a day whose only sessions are late in the afternoon
+ * puts its first card fourteen slot rows down. That combination is why the tray
+ * test passed on a fresh seed and failed once twenty other specs had moved the
+ * programme around — the seam was always here, the seeded layout was hiding it.
+ */
+function assertOnScreen(page: Page, label: string, point: { x: number; y: number }) {
+  const viewport = page.viewportSize()!;
+  expect(point.x, `${label} point is within the viewport horizontally`).toBeGreaterThanOrEqual(0);
+  expect(point.x, `${label} point is within the viewport horizontally`).toBeLessThanOrEqual(
+    viewport.width,
+  );
+  expect(point.y, `${label} point is within the viewport vertically`).toBeGreaterThanOrEqual(0);
+  expect(point.y, `${label} point is within the viewport vertically`).toBeLessThanOrEqual(
+    viewport.height,
+  );
+}
+
+/**
  * Put the programme in a KNOWN state before each test, through the product's own
  * action rather than a SQL fixture. Tests then do not depend on each other's
  * leftovers, nor on whatever the last `npm run seed` or acceptance-harness run
@@ -146,12 +176,27 @@ test("dropping a card on the unscheduled tray clears its time", async ({ page })
   const tray = page.locator('[data-slot="tray"]');
   await expect(tray).toBeVisible();
 
+  // Bring the card on-screen before measuring — see assertOnScreen. Scrolling
+  // to the card moves the tray up by the same amount and the two are close
+  // enough together to share a screen; the guards say so rather than trust it.
+  await card.scrollIntoViewIfNeeded();
   const from = await card.boundingBox();
   const to = await tray.boundingBox();
-  await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+  const grab = { x: from!.x + from!.width / 2, y: from!.y + from!.height / 2 };
+  const drop = { x: to!.x + to!.width / 2, y: to!.y + 40 };
+  assertOnScreen(page, "grab", grab);
+  assertOnScreen(page, "drop", drop);
+
+  await page.mouse.move(grab.x, grab.y);
   await page.mouse.down();
-  await page.mouse.move(from!.x - 20, from!.y + 20, { steps: 5 });
-  await page.mouse.move(to!.x + to!.width / 2, to!.y + 40, { steps: 15 });
+  await page.mouse.move(grab.x - 20, grab.y + 20, { steps: 5 });
+  await page.mouse.move(drop.x, drop.y, { steps: 15 });
+
+  // Re-measure before releasing, for the same reason the test above does: the
+  // drag can put the cursor in dnd-kit's auto-scroll zone, which moves the tray
+  // out from under coordinates read before the drag started.
+  const settled = await tray.boundingBox();
+  await page.mouse.move(settled!.x + settled!.width / 2, settled!.y + 40, { steps: 5 });
   await page.mouse.up();
 
   await page.waitForURL(/cleared=/, { timeout: 15_000 });

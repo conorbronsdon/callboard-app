@@ -29,15 +29,16 @@
  * typechecked and BUILT clean and only failed in `vite dev`, as a full-screen
  * error overlay that ate the e2e run. Callers still import from one place.
  */
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import type { DB } from "~/db/client.server";
-import { aiTriage } from "~/db/schema";
+import { aiTriage, reviewRounds } from "~/db/schema";
 import { appEnv } from "~/lib/env.server";
 import {
   AI_TRIAGE_BULK_CAP,
   AI_TRIAGE_BULK_CONCURRENCY,
   AI_TRIAGE_MODEL,
+  RUBRIC_CRITERIA_MAX,
   SYSTEM_PROMPT,
   buildTriagePrompt,
   parseTriageText,
@@ -46,22 +47,27 @@ import {
   type TriageOpinion,
   type TriageSubmission,
 } from "~/lib/review/ai-triage";
+import { parseRubric } from "~/lib/review/scoring";
 
 export {
+  AI_TRIAGE_BULK_BATCH,
   AI_TRIAGE_BULK_CAP,
   AI_TRIAGE_BULK_CONCURRENCY,
   AI_TRIAGE_MODEL,
+  RUBRIC_CRITERIA_MAX,
   AI_TRIAGE_RECOMMENDATIONS,
   AI_TRIAGE_STATUSES,
   SYSTEM_PROMPT,
   buildTriagePrompt,
   parseTriageText,
+  planTriageBatch,
   textFromAiResponse,
   triageBeginMarker,
   triageEndMarker,
   triageSentinel,
   type AiTriageRecommendation,
   type AiTriageStatus,
+  type BulkBatchPlan,
   type TriageOpinion,
   type TriageParse,
   type TriageSubmission,
@@ -93,6 +99,7 @@ export function triageBinding(): TriageAiBinding | null {
 export async function requestTriage(
   ai: TriageAiBinding | null,
   submission: TriageSubmission,
+  criteria: readonly string[] = [],
 ): Promise<TriageOutcome> {
   if (!ai) return { status: "unavailable" };
 
@@ -101,7 +108,7 @@ export async function requestTriage(
     response = await ai.run(AI_TRIAGE_MODEL, {
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: buildTriagePrompt(submission) },
+        { role: "user", content: buildTriagePrompt(submission, undefined, criteria) },
       ],
       max_tokens: 400,
       temperature: 0.2,
@@ -199,9 +206,11 @@ export async function triageSubmission(
     requestedById: string | null;
     submission: TriageSubmission;
     ai: TriageAiBinding | null;
+    /** Current-round criterion names, or empty for the generic prompt. */
+    criteria?: readonly string[];
   },
 ): Promise<TriageOutcome> {
-  const outcome = await requestTriage(args.ai, args.submission);
+  const outcome = await requestTriage(args.ai, args.submission, args.criteria ?? []);
   if (outcome.status === "unavailable") return outcome;
   await storeTriageOutcome(db, {
     eventId: args.eventId,
@@ -237,6 +246,8 @@ export async function triageMany(
     targets: readonly BulkTriageTarget[];
     ai: TriageAiBinding | null;
     concurrency?: number;
+    /** Current-round criterion names, applied to every prompt in the wave. */
+    criteria?: readonly string[];
   },
 ): Promise<BulkTriageResult> {
   if (!args.ai) return { ok: 0, failed: 0, unavailable: true };
@@ -256,6 +267,7 @@ export async function triageMany(
           requestedById: args.requestedById,
           submission: target.submission,
           ai: args.ai,
+          criteria: args.criteria,
         }),
       ),
     );
@@ -266,6 +278,36 @@ export async function triageMany(
   }
 
   return { ok, failed, unavailable: false };
+}
+
+/* ----------------------------------------------------------- the rubric */
+
+/**
+ * The criterion names of the event's CURRENT round — highest `ordinal`, the
+ * same round the reviewer forms are scoring — for the prompt to speak in.
+ *
+ * Returns `[]` for an event with no rounds, which is the unchanged-prompt path
+ * rather than an error: triage is meant to work before anyone has built a
+ * rubric. Labels, not keys: `speaker_signal` is a column name, "Speaker signal"
+ * is what the committee says out loud.
+ */
+export async function currentRoundCriteria(db: DB, eventId: string): Promise<string[]> {
+  const rows = await db
+    .select({ rubric: reviewRounds.rubric })
+    .from(reviewRounds)
+    .where(eq(reviewRounds.eventId, eventId))
+    .orderBy(desc(reviewRounds.ordinal))
+    .limit(1);
+
+  if (rows.length === 0) return [];
+  /*
+   * A round with a null rubric parses to the seeded default — which is exactly
+   * what its reviewer form scores against, so the prompt and the form still
+   * name the same criteria.
+   */
+  return parseRubric(rows[0].rubric)
+    .criteria.map((criterion) => criterion.label)
+    .slice(0, RUBRIC_CRITERIA_MAX);
 }
 
 /* ------------------------------------------------------------------ read */

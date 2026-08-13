@@ -12,10 +12,15 @@ import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 import { env } from "~/test/workers-env";
 
-import AdminSpeakerDetail, { SpeakerView, loader } from "./admin.speaker";
+import AdminSpeakerDetail, {
+  SpeakerView,
+  loader,
+  speakerLoaderPayload,
+  type SpeakerLoaderData,
+} from "./admin.speaker";
 
 type LoaderArgs = Parameters<typeof loader>[0];
-type LoaderData = Awaited<ReturnType<typeof loader>>;
+type LoaderData = SpeakerLoaderData;
 
 let ctx: TestDbContext;
 let fixture: DemoFixture;
@@ -47,7 +52,11 @@ afterEach(() => ctx.close());
 
 async function load(id: string): Promise<LoaderData> {
   const request = await signedInGet(`https://x.test/admin/speakers/${id}`, fixture.adminId);
-  return loader({ request, params: { id }, context: {} } as unknown as LoaderArgs);
+  // The not-found branch answers 404 via `data()`; these tests want the
+  // payload either way, so unwrap through the route's own helper.
+  return speakerLoaderPayload(
+    await loader({ request, params: { id }, context: {} } as unknown as LoaderArgs),
+  );
 }
 
 /** A deliverable on the speaker's own record — what SPK-10 mirrors. */
@@ -140,6 +149,14 @@ describe("render", () => {
     expect(html).toContain("No bio yet");
     expect(html).toContain("Nothing submitted yet.");
     expect(html).toContain("Submissions (0)");
+    /*
+     * SPK-02 must-not-fire. This copy is what a GENUINELY empty profile should
+     * say, and the fix for the silent-discard bug must not reach it: filling
+     * blank columns from a form the organizer submitted is the change, showing
+     * invented affiliation for a person nobody has described is not. If a
+     * future "helpful default" starts writing placeholders, this goes red.
+     */
+    expect(html).toContain("No affiliation on file");
   });
 
   it("renders the not-found state instead of throwing", async () => {

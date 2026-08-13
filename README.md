@@ -73,10 +73,10 @@ Suggested walkthrough:
 
 ## Limitations
 
-Known open gaps, verified against `main` at `d3184e9`. Each one names the file
+Known open gaps, verified against `main` at `fb76402`. Each one names the file
 or command that shows it, so it can be rechecked rather than taken on trust.
 
-Volatile counts at `d3184e9`, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **15** migrations;
+Volatile counts at `fb76402`, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **15** migrations;
 `grep -c 'sqliteTable(' app/db/schema.ts` → **37** tables;
 `grep -oE 'insert\("[a-z_]+"' scripts/seed.mjs | sort -u | wc -l` → **29** seeded
 tables; `npx vitest list --run | wc -l` → **2269** tests.
@@ -125,6 +125,18 @@ existing name overwrites it (`save-segment` and `delete-segment` in
 **Contact merge is one-way.** Merging sets `people.merged_into` on the losing
 row and re-parents its memberships, tags, notes, and session participations.
 There is no unmerge action; the UI says so before you confirm.
+
+**Speaker custom fields (travel, dietary, AV needs) have no admin-reachable
+path.** The pipeline is fully built — `app/lib/portal-form.ts` defines typed,
+validated per-speaker questions; `tasks.form_id`/`tasks.response` in
+`app/db/schema.ts` store one speaker's answers; `app/routes/portal.task.tsx`
+renders and saves them; and accepting a submission auto-creates a form task per
+speaker from that event's `task_templates` row
+(`app/lib/review/commit.server.ts:210-292`) — but no `admin.*` route or API
+endpoint ever creates or edits a `task_templates` row, so nothing can attach a
+form to a speaker. The only place one exists is `scripts/seed.mjs`. The one
+live ad-hoc task-creation form (`admin.tasks.tsx:170`) accepts just `general`
+or `file-request`, never `form`.
 
 **Saved embeds cannot be edited in place.** The `save` action always mints a new
 `crypto.randomUUID()`, so changing a widget's theme, track, or accent means
@@ -186,7 +198,7 @@ that proves or disproves it. Repository commands run from a clean checkout after
 | Claim | How to check it |
 |---|---|
 | The migration, table, and seeded-table counts are real | Run the three commands stamped at the top of [Limitations](#limitations); each prints the number quoted beside it |
-| The test suite is the size claimed | `npx vitest list --run \| wc -l`. Limitations stamps this count at `d3184e9`; later commits report a larger number, which is why the stamp names a SHA |
+| The test suite is the size claimed | `npx vitest list --run \| wc -l`. Limitations stamps this count at `fb76402`; later commits report a larger number, which is why the stamp names a SHA |
 | The whole gate passes three consecutive isolated times | `npm run release:verify:repeat` — writes one attempt per pass to `artifacts/release-gate/<sha>/manifest.json` and only sets `"result": "passed"` after three |
 | CI runs that same gate, not a lighter one | [`.github/workflows/check.yml`](.github/workflows/check.yml) and [`.github/workflows/repeat-release-gate.yml`](.github/workflows/repeat-release-gate.yml) |
 | Calendar invites actually land in a real calendar | `app/lib/comms/ics.ts:5` records the end-to-end verification against Gmail on 2026-08-08: native RSVP card, event auto-staged, conflict detection ran |

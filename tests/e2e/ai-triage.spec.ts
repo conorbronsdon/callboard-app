@@ -104,22 +104,79 @@ test("the un-triaged abstract really is un-triaged, and the triaged one really i
 
 test("dismissing a seeded opinion removes it and leaves the abstract alone", async ({ page }) => {
   await openAbstract(page, TRIAGED);
-  const statusBefore = await page.getByTestId("detail-status").innerText();
-  await expect(page.getByTestId("ai-triage-result")).toHaveCount(1);
-
-  await page.getByTestId("ai-triage-dismiss").click();
-
-  await expect(page.getByTestId("ai-triage-result")).toHaveCount(0);
-  await expect(page.getByTestId("ai-triage-card")).toBeVisible();
 
   /*
-   * must-not-fire: dismissing an advisory opinion is not a decision.
+   * The status is read off the `<summary>`'s aria-label, not the cell's text.
    *
-   * `innerText` on BOTH sides, not `toHaveText`. The status cell is a
-   * `<details>` popover, so `toHaveText` reads the collapsed menu's options too
-   * ("PendingStatusAcceptedAccept Queue…") and never matches the visible label
-   * captured before the click.
+   * `innerText` of the cell is a moving target: the disclosure affordances
+   * ("Change", "▾") are inside the summary, so a read taken the instant the
+   * abstract becomes visible can return a bare "Pending" while a read a second
+   * later returns "Pending Change ▾". The old spec never saw it because its
+   * `.click()` navigated, putting both reads on freshly loaded pages; the
+   * binding-absent branch below does not navigate at all, which exposed the
+   * race. The aria-label carries the status and nothing else, and
+   * `toHaveAttribute` retries, so both reads are of the same settled thing.
    */
-  expect(await page.getByTestId("detail-status").innerText()).toBe(statusBefore);
-  expect(statusBefore.trim()).toBe("Pending"); // control: it was a real value
+  const statusControl = page.getByTestId("detail-status").locator("summary");
+  const STATUS_BEFORE = "Change status (currently Pending)"; // control: a real value, not ""
+  await expect(statusControl).toHaveAttribute("aria-label", STATUS_BEFORE);
+
+  await expect(page.getByTestId("ai-triage-result")).toHaveCount(1);
+
+  /*
+   * Which half of this test is the real one depends on the DEPLOYMENT, exactly
+   * as it does two tests up — so read the binding off the page instead of
+   * assuming it. A local run has wrangler's OAuth and a live `AI` binding; CI
+   * runs with CALLBOARD_DISABLE_AI_BINDING=1 and has none.
+   *
+   * With no binding, "Dismiss" is deliberately disabled: dismissal is
+   * irreversible and this deployment cannot re-run triage to restore what it
+   * threw away. Clicking it here is not a flake to be waited out, it is the
+   * feature working. The old unconditional `.click()` timed out for exactly
+   * that reason on the first credential-less CI run of this spec.
+   */
+  const unavailable = page.getByTestId("ai-triage-unavailable");
+  const bindingAbsent = (await unavailable.count()) === 1;
+
+  if (bindingAbsent) {
+    // Both irreversible-without-a-re-run controls are off, and each one SAYS
+    // why rather than just greying out.
+    await expect(page.getByTestId("ai-triage-dismiss")).toBeDisabled();
+    await expect(page.getByTestId("ai-triage-rerun")).toBeDisabled();
+    await expect(page.getByTestId("ai-triage-dismiss")).toHaveAttribute(
+      "aria-describedby",
+      "ai-triage-unavailable-note",
+    );
+    await expect(page.getByTestId("ai-triage-rerun")).toHaveAttribute(
+      "aria-describedby",
+      "ai-triage-unavailable-note",
+    );
+    await expect(page.getByTestId("ai-triage-dismiss")).toHaveAttribute(
+      "title",
+      /Dismiss is permanent/,
+    );
+    // Straight quotes only in this pattern — the note itself uses typographic
+    // quotes around the button names, which a literal here would have to match
+    // byte-for-byte.
+    await expect(unavailable).toContainText(
+      /are disabled and the first pass below cannot be refreshed or permanently removed/,
+    );
+
+    // must-still-fire: the point of disabling Dismiss is that the seeded
+    // opinion SURVIVES. A pass that only proved "the button is off" would
+    // also pass on a card that rendered nothing at all.
+    await expect(page.getByTestId("ai-triage-result")).toHaveCount(1);
+    await expect(page.getByTestId("ai-triage-card")).toBeVisible();
+  } else {
+    await page.getByTestId("ai-triage-dismiss").click();
+
+    await expect(page.getByTestId("ai-triage-result")).toHaveCount(0);
+    await expect(page.getByTestId("ai-triage-card")).toBeVisible();
+  }
+
+  /*
+   * must-not-fire, in BOTH worlds: neither dismissing an advisory opinion nor
+   * being unable to dismiss it is a decision about the abstract.
+   */
+  await expect(statusControl).toHaveAttribute("aria-label", STATUS_BEFORE);
 });

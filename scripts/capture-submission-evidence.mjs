@@ -102,7 +102,7 @@ async function capture(page, item) {
     finalUrl: page.url(),
     title: await page.title(),
     status: response.status(),
-    viewport: page.viewportSize(),
+    viewportSize: page.viewportSize(),
   });
 }
 

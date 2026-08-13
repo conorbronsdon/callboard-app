@@ -14,6 +14,7 @@ import {
   type DemoFixture,
 } from "~/test/fixtures";
 
+import { loader as speakerDetailLoader, speakerLoaderPayload } from "./admin.speaker";
 import AdminSpeakers, { action, loader } from "./admin.speakers";
 
 type ActionArgs = Parameters<typeof action>[0];
@@ -132,6 +133,15 @@ describe("manual add and status actions", () => {
       email: "new.speaker@example.com",
       fullName: "New Speaker",
       role: "speaker",
+      /*
+       * SPK-02: these three were SUBMITTED by this test from the day it was
+       * written and never asserted, which is exactly how the create path's
+       * sibling hole (an email that already exists) stayed invisible through
+       * 2,400 tests. Filling a field is not evidence; reading it back is.
+       */
+      title: "CTO",
+      company: "New Co",
+      bio: "A new biography.",
     });
     const membership = await ctx.db.query.eventPeople.findFirst({
       where: and(
@@ -204,6 +214,134 @@ describe("manual add and status actions", () => {
         ),
       }),
     ).toBeDefined();
+  });
+
+  /*
+   * SPK-02, the defect the official eval caught with before/after screenshots:
+   * an organizer filled Title, Company and Biography on the Add speaker form,
+   * saved, and the profile that came back read "No affiliation on file" / "No
+   * bio yet". The add path only INSERTED a people row when the email was new,
+   * so for an email the system already knew — a submission's author, a contact,
+   * a reviewer — every optional field the organizer typed went nowhere.
+   *
+   * The rule that resolves this against the test above: fill what is BLANK,
+   * never overwrite what is there. "Don't clobber a global profile" and "don't
+   * discard what the organizer typed" are only in tension if you read a null
+   * column as content worth protecting.
+   */
+  it("MUST FIRE: fills a blank profile on an existing person from the add form", async () => {
+    await ctx.db.insert(people).values({
+      id: "spk02-blank-profile",
+      email: "blank.profile@example.com",
+      fullName: "Blank Profile",
+      role: "speaker",
+    });
+
+    const result = await post({
+      intent: "add-speaker",
+      email: "blank.profile@example.com",
+      fullName: "Blank Profile",
+      title: "Principal Engineer",
+      company: "Latticework Systems",
+      bio: "Builds lattice-scale inference systems.",
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(
+      await ctx.db.query.people.findFirst({ where: eq(people.id, "spk02-blank-profile") }),
+    ).toMatchObject({
+      title: "Principal Engineer",
+      company: "Latticework Systems",
+      bio: "Builds lattice-scale inference systems.",
+    });
+
+    // Read back through the loader the profile page actually renders from.
+    const detail = speakerLoaderPayload(
+      await speakerDetailLoader({
+        request: await signedInGet(
+          "https://x.test/admin/speakers/spk02-blank-profile",
+          fixture.adminId,
+        ),
+        params: { id: "spk02-blank-profile" },
+        context: {},
+      } as never),
+    );
+    expect(detail.speaker).toMatchObject({
+      title: "Principal Engineer",
+      company: "Latticework Systems",
+      bio: "Builds lattice-scale inference systems.",
+    });
+  });
+
+  it("MUST FIRE: fills only the blank columns and leaves populated ones alone", async () => {
+    await ctx.db.insert(people).values({
+      id: "spk02-half-filled",
+      email: "half.filled@example.com",
+      fullName: "Half Filled",
+      company: "Existing Company",
+      role: "speaker",
+    });
+
+    const result = await post({
+      intent: "add-speaker",
+      email: "half.filled@example.com",
+      fullName: "Half Filled",
+      title: "Staff Engineer",
+      company: "Submitted Company",
+      bio: "Submitted biography.",
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(
+      await ctx.db.query.people.findFirst({ where: eq(people.id, "spk02-half-filled") }),
+    ).toMatchObject({
+      // blank before, so the organizer's entry lands
+      title: "Staff Engineer",
+      bio: "Submitted biography.",
+      // already had a value, so the form does not win
+      company: "Existing Company",
+    });
+  });
+
+  it("MUST NOT FIRE: a required-only add still works and leaves the profile blank", async () => {
+    const result = await post({
+      intent: "add-speaker",
+      email: "required.only@example.com",
+    });
+
+    expect(result).toMatchObject({ ok: true, notice: "Speaker added to this event." });
+    const created = await ctx.db.query.people.findFirst({
+      where: eq(people.email, "required.only@example.com"),
+    });
+    expect(created).toMatchObject({ email: "required.only@example.com", role: "speaker" });
+    // Genuinely empty stays empty — this is what the empty-state copy renders from.
+    expect(created?.title).toBeNull();
+    expect(created?.company).toBeNull();
+    expect(created?.bio).toBeNull();
+  });
+
+  it("MUST NOT FIRE: whitespace-only optional fields do not count as filled", async () => {
+    await ctx.db.insert(people).values({
+      id: "spk02-whitespace",
+      email: "whitespace@example.com",
+      fullName: "Whitespace Person",
+      role: "speaker",
+    });
+
+    await post({
+      intent: "add-speaker",
+      email: "whitespace@example.com",
+      title: "   ",
+      company: "\t",
+      bio: "  \n ",
+    });
+
+    const row = await ctx.db.query.people.findFirst({
+      where: eq(people.id, "spk02-whitespace"),
+    });
+    expect(row?.title).toBeNull();
+    expect(row?.company).toBeNull();
+    expect(row?.bio).toBeNull();
   });
 
   it("rejects blank and malformed email without writing", async () => {
@@ -293,6 +431,61 @@ describe("CSV commit", () => {
         where: and(eq(eventPeople.eventId, EVENT_ID), eq(eventPeople.personId, created!.id)),
       }),
     ).toMatchObject({ status: "invited" });
+  });
+
+  /*
+   * The same SPK-02 hole through the bulk door. `parseSpeakerCsv` classifies
+   * against THIS EVENT'S roster, so a person who exists globally but has never
+   * been on this event classifies as "create" — and the commit then skipped
+   * their people row because the email already existed, dropping the Company
+   * and Bio columns the organizer prepared in the spreadsheet.
+   */
+  it("MUST FIRE: fills a blank profile for a global person the CSV re-introduces", async () => {
+    await ctx.db.insert(people).values({
+      id: "spk02-csv-global",
+      email: "csv.global@example.com",
+      fullName: "CSV Global",
+      role: "speaker",
+    });
+
+    const result = await post({
+      intent: "import-commit",
+      rawCsv: "Name,Email,Company,Bio\nCSV Global,csv.global@example.com,Lattice Co,Imported bio\n",
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(
+      await ctx.db.query.people.findFirst({ where: eq(people.id, "spk02-csv-global") }),
+    ).toMatchObject({ company: "Lattice Co", bio: "Imported bio" });
+    expect(
+      await ctx.db.query.eventPeople.findFirst({
+        where: and(
+          eq(eventPeople.eventId, EVENT_ID),
+          eq(eventPeople.personId, "spk02-csv-global"),
+        ),
+      }),
+    ).toBeDefined();
+  });
+
+  it("MUST NOT FIRE: a CSV does not overwrite a populated global profile", async () => {
+    await ctx.db.insert(people).values({
+      id: "spk02-csv-populated",
+      email: "csv.populated@example.com",
+      fullName: "CSV Populated",
+      company: "Real Company",
+      bio: "Real biography",
+      role: "speaker",
+    });
+
+    await post({
+      intent: "import-commit",
+      rawCsv:
+        "Name,Email,Company,Bio\nCSV Populated,csv.populated@example.com,Wrong Co,Wrong bio\n",
+    });
+
+    expect(
+      await ctx.db.query.people.findFirst({ where: eq(people.id, "spk02-csv-populated") }),
+    ).toMatchObject({ company: "Real Company", bio: "Real biography" });
   });
 
   it("writes zero rows when any re-parsed row is an error", async () => {

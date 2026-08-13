@@ -7,10 +7,18 @@ import { signedInGet } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
+import {
+  SubmissionDetailView,
+  loader as detailLoader,
+  submissionLoaderPayload,
+} from "./admin.submission";
 import { AbstractsView, listUrl, loader } from "./admin.submissions";
 
 type LoaderArgs = Parameters<typeof loader>[0];
 type LoaderData = Awaited<ReturnType<typeof loader>>;
+
+const detailArgs = (request: Request, id: string) =>
+  ({ request, params: { id }, context: {} }) as unknown as Parameters<typeof detailLoader>[0];
 
 const ROUND = "81818181-8181-4181-8181-818181818181";
 const RECUSED_REVIEWER = "82828282-8282-4282-8282-828282828282";
@@ -151,14 +159,37 @@ describe("submission aggregate scores", () => {
     expect(descending.rows.map((row) => row.aggregateScore)).toEqual([5, 10 / 3, null]);
   });
 
-  it("must fire: renders the weighted criterion-scale average as 3.33", async () => {
+  it("MUST FIRE: the list prints the same weighted number the detail page prints (ABS-10)", async () => {
+    /*
+     * One review, total 10, under a rubric weighing 3 and maxing at 15
+     * (originality ×2 and relevance ×1, both out of 5). The detail page has
+     * always said "10.0 / 15". The list said "3.33" — the same review divided
+     * by the weight total instead of measured against the maximum — with
+     * nothing on either screen naming which scale it was on. Two unlabelled
+     * numbers for one review read as a scoring bug, and in the eval it was
+     * reported as one.
+     */
+    const lowId = fixture.abstractIds[4];
     const data = await load("https://x.test/admin/submissions?tab=pending&sort=score-desc");
-    const html = renderToStaticMarkup(<AbstractsView {...data} />);
-    const cell = scoreCell(html, fixture.abstractIds[4]);
+    const cell = scoreCell(renderToStaticMarkup(<AbstractsView {...data} />), lowId);
 
-    expect(cell).toContain("3.33");
-    expect(cell).not.toContain("3.00");
+    expect(cell).toContain("10.0 / 15");
     expect(cell).toContain("1 review");
+    // The two old readings of the same review are gone from the cell.
+    expect(cell).not.toContain("3.33");
+    expect(cell).not.toContain("3.00");
+
+    // ...and the detail page, unchanged, states it the same way.
+    const detail = submissionLoaderPayload(
+      await detailLoader(
+        detailArgs(
+          await signedInGet(`https://x.test/admin/submissions/${lowId}?tab=pending`, fixture.adminId),
+          lowId,
+        ),
+      ),
+    );
+    const detailHtml = renderToStaticMarkup(<SubmissionDetailView {...detail} />);
+    expect(detailHtml).toContain("10.0 / 15");
   });
 
   it("must fire: an unreviewed abstract renders an em dash and remains last", async () => {
@@ -256,5 +287,142 @@ describe("submission aggregate scores", () => {
     );
     expect(html).toContain('<input type="hidden" name="sort" value="score-desc"/>');
     expect(html).toContain('aria-sort="descending"');
+  });
+});
+
+/*
+ * ─────────────────────────────────────────────── contested disagreement ──
+ *
+ * The score list is where a programme chair builds the agenda for the
+ * committee call, and the rows worth arguing about are not the top of the
+ * sort — they are the ones the panel split on. The rubric in this file weighs
+ * 3 and maxes at 15 (originality ×2, relevance ×1, both out of 5), so every
+ * number below is hand-computed against those two constants.
+ */
+const SECOND_REVIEWER = "89898989-8989-4989-8989-898989898989";
+
+describe("contested submissions", () => {
+  /** A second genuine review of HIGH_TITLE, `totalScore` points apart from 15. */
+  async function addSecondReview(totalScore: number): Promise<void> {
+    await ctx.db.insert(people).values({
+      id: SECOND_REVIEWER,
+      email: "second-score-reviewer@example.com",
+      fullName: "Second Reviewer",
+      role: "admin",
+    });
+    await ctx.db.insert(reviews).values({
+      id: "8a8a8a8a-8a8a-48a8-8a8a-8a8a8a8a8a8a",
+      roundId: ROUND,
+      sessionId: fixture.abstractIds[3],
+      reviewerId: SECOND_REVIEWER,
+      totalScore,
+      submittedAt: new Date("2026-08-12T12:00:00Z"),
+    });
+  }
+
+  it("MUST FIRE: a split panel is badged, and the badge names the spread", async () => {
+    // 15/15 is 5.00 and 6/15 is 2.00 — three points apart on a five-point
+    // scale, or nine of fifteen weighted.
+    await addSecondReview(6);
+
+    const data = await load("https://x.test/admin/submissions?tab=pending");
+    const high = data.rows.find((row) => row.title === HIGH_TITLE);
+
+    expect(high?.contested).toBe(true);
+    expect(high?.disagreement).toMatchObject({
+      gap: 3,
+      gapWeighted: 9,
+      // 12, not 15: the widest gap the rubric ALLOWS (4 points × 3 weight),
+      // where 15 is the highest score it allows.
+      weightedSpan: 12,
+      severity: 0.75,
+      reviewCount: 2,
+    });
+    expect(high?.weighted).toEqual({ average: 10.5, max: 15 });
+
+    const html = renderToStaticMarkup(<AbstractsView {...data} />);
+    const cell = scoreCell(html, fixture.abstractIds[3]);
+    expect(cell).toContain("Contested");
+    expect(cell).toContain("Widest gap 9.0 of 12 possible across 2 reviews");
+    // Advisory: the badge sits beside the score, and the status cell is
+    // untouched — nothing here moves a submission anywhere.
+    expect(cell).toContain("10.5 / 15");
+    expect(html).toContain("Advisory only — nothing about the decision changes.");
+  });
+
+  it("MUST NOT FIRE: reviewers who broadly agree get no badge", async () => {
+    // 5.00 against 4.00 is one point apart, under the 1.50 threshold.
+    await addSecondReview(12);
+
+    const data = await load("https://x.test/admin/submissions?tab=pending");
+    expect(data.rows.find((row) => row.title === HIGH_TITLE)?.contested).toBe(false);
+    expect(renderToStaticMarkup(<AbstractsView {...data} />)).not.toContain("Contested");
+  });
+
+  it("MUST NOT FIRE: one review, a recusal and a draft raise no dispute", async () => {
+    /*
+     * LOW_TITLE carries exactly the rows that would fake a disagreement if the
+     * metric counted anything a reviewer typed: one genuine 10, a RECUSED 15
+     * (which would read as a 1.67 gap and badge the row) and an unsubmitted 3
+     * (which would read as 2.33).
+     */
+    const data = await load("https://x.test/admin/submissions?tab=pending");
+    const low = data.rows.find((row) => row.title === LOW_TITLE);
+    const unscored = data.rows.find((row) => row.title === UNSCORED_TITLE);
+
+    expect(low).toMatchObject({ contested: false, reviewCount: 1 });
+    expect(low?.disagreement.gap).toBeNull();
+    expect(unscored?.contested).toBe(false);
+
+    const html = renderToStaticMarkup(<AbstractsView {...data} />);
+    expect(scoreCell(html, fixture.abstractIds[4])).not.toContain("Contested");
+    expect(scoreCell(html, UNSCORED)).not.toContain("Contested");
+  });
+
+  it("MUST FIRE: the contested sort puts the split panel first and offers the control", async () => {
+    await addSecondReview(6);
+
+    const contested = await load(
+      "https://x.test/admin/submissions?tab=pending&sort=contested-desc",
+    );
+    expect(contested.sort).toBe("contested-desc");
+    // HIGH_TITLE is the only contested row; the rest fall back to newest-first.
+    expect(contested.rows.map((row) => row.title)).toEqual([
+      HIGH_TITLE,
+      LOW_TITLE,
+      UNSCORED_TITLE,
+    ]);
+
+    // ...and it is genuinely a different order from the score sort, which puts
+    // the same row first for a different reason. Ordering by score descending
+    // ranks HIGH (10.5) above LOW (10.0); ordering by disagreement ranks it
+    // first because its panel split, so the two agree here only by coincidence
+    // of the fixture — the control that matters is the ascending sort, where
+    // the contested row goes last.
+    const ascending = await load("https://x.test/admin/submissions?tab=pending&sort=score-asc");
+    expect(ascending.rows.map((row) => row.title)).toEqual([
+      LOW_TITLE,
+      HIGH_TITLE,
+      UNSCORED_TITLE,
+    ]);
+
+    const html = renderToStaticMarkup(<AbstractsView {...contested} />);
+    expect(html).toContain('data-testid="sort-contested"');
+    // The href React rendered, ampersand-escaped as it appears in the markup.
+    expect(html).toContain(
+      listUrl("pending", null, "", "contested-desc").replace(/&/g, "&amp;"),
+    );
+  });
+
+  it("MUST NOT FIRE: the contested sort changes no status and gates nothing", async () => {
+    await addSecondReview(6);
+
+    const before = await ctx.db.select({ id: sessions.id, status: sessions.status }).from(sessions);
+    const data = await load("https://x.test/admin/submissions?tab=pending&sort=contested-desc");
+    const after = await ctx.db.select({ id: sessions.id, status: sessions.status }).from(sessions);
+
+    expect(after).toEqual(before);
+    // Every row still reports the status it had; the badge is presentation.
+    expect(data.rows.every((row) => row.status === "pending")).toBe(true);
   });
 });

@@ -7,7 +7,7 @@ import { signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
-import { action, loader } from "./admin.speaker";
+import { action, loader, speakerLoaderPayload } from "./admin.speaker";
 
 type ActionArgs = Parameters<typeof action>[0];
 type LoaderArgs = Parameters<typeof loader>[0];
@@ -47,7 +47,9 @@ describe("organizer speaker editing", () => {
     const request = await import("~/test/auth").then(({ signedInGet }) =>
       signedInGet(`https://x.test/admin/speakers/${id}`, fixture.adminId),
     );
-    const reloaded = await loader({ request, params: { id }, context: {} } as unknown as LoaderArgs);
+    const reloaded = speakerLoaderPayload(
+      await loader({ request, params: { id }, context: {} } as unknown as LoaderArgs),
+    );
     expect(reloaded.speaker).toMatchObject({
       name: "Sam Updated",
       title: "Principal Engineer",

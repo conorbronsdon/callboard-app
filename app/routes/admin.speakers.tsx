@@ -34,6 +34,46 @@ function escapeLike(value: string): string {
   return value.replace(/!/g, "!!").replace(/%/g, "!%").replace(/_/g, "!_");
 }
 
+/**
+ * The optional profile columns BOTH roster doors collect (SPK-02).
+ *
+ * `pronouns` is deliberately absent: neither the Add speaker drawer nor the CSV
+ * importer offers it, and a field no door collects cannot be filled from one.
+ */
+const FILLABLE_PROFILE_FIELDS = ["fullName", "title", "company", "bio"] as const;
+type FillableProfileField = (typeof FILLABLE_PROFILE_FIELDS)[number];
+type ProfileValues = Partial<Record<FillableProfileField, string | null>>;
+
+/**
+ * What to write onto a person who ALREADY EXISTS when an organizer adds them to
+ * a roster with the optional fields filled in — SPK-02, caught by the official
+ * eval with before/after screenshots.
+ *
+ * Both add paths only ever INSERTED a people row, and only when the email was
+ * new. For an email the system already knew (a submission's author, a contact,
+ * a reviewer) the whole insert was skipped, so Title, Company and Biography
+ * went nowhere and the profile came back reading "No affiliation on file".
+ *
+ * The rule is fill-what-is-blank, never overwrite. The old behaviour existed to
+ * stop one event's organizer from clobbering a person's global profile, and
+ * that protection is real — but a NULL column is not a profile worth
+ * protecting. Both goals hold at once as long as "blank" is decided on the
+ * stored value rather than on whether the row existed.
+ *
+ * Whitespace is blank on both sides: a submitted "   " fills nothing, and an
+ * existing "   " is not treated as content that blocks a fill.
+ */
+function blankProfileFill(existing: ProfileValues, submitted: ProfileValues): ProfileValues {
+  const patch: ProfileValues = {};
+  for (const field of FILLABLE_PROFILE_FIELDS) {
+    const value = (submitted[field] ?? "").trim();
+    if (!value) continue;
+    if ((existing[field] ?? "").trim()) continue;
+    patch[field] = value;
+  }
+  return patch;
+}
+
 async function rosterEmails(db: DB, eventId: string): Promise<Set<string>> {
   const rows = await db
     .select({ email: people.email })
@@ -107,19 +147,32 @@ export async function action({ request }: Route.ActionArgs) {
 
     const existing = await db.query.people.findFirst({ where: eq(people.email, email) });
     const personId = existing?.id ?? crypto.randomUUID();
+    const submitted: ProfileValues = {
+      fullName: String(formData.get("fullName") ?? ""),
+      title: String(formData.get("title") ?? ""),
+      company: String(formData.get("company") ?? ""),
+      bio: String(formData.get("bio") ?? ""),
+    };
     const statements: BatchStatement[] = [];
+    let filled = false;
     if (!existing) {
       statements.push(
         db.insert(people).values({
           id: personId,
           email,
-          fullName: String(formData.get("fullName") ?? "").trim() || null,
-          title: String(formData.get("title") ?? "").trim() || null,
-          company: String(formData.get("company") ?? "").trim() || null,
-          bio: String(formData.get("bio") ?? "").trim() || null,
+          fullName: submitted.fullName?.trim() || null,
+          title: submitted.title?.trim() || null,
+          company: submitted.company?.trim() || null,
+          bio: submitted.bio?.trim() || null,
           role: "speaker",
         }),
       );
+    } else {
+      const patch = blankProfileFill(existing, submitted);
+      filled = Object.keys(patch).length > 0;
+      if (filled) {
+        statements.push(db.update(people).set(patch).where(eq(people.id, personId)));
+      }
     }
     statements.push(
       db
@@ -133,7 +186,9 @@ export async function action({ request }: Route.ActionArgs) {
       ok: true as const,
       intent,
       notice: existing
-        ? "Existing person attached; their global profile was left unchanged."
+        ? filled
+          ? "Existing person attached; blank profile fields were filled in from your entry."
+          : "Existing person attached; their global profile was left unchanged."
         : "Speaker added to this event.",
     };
   }
@@ -231,26 +286,33 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     const creates = plan.rows.filter((row) => row.classification === "create");
-    const existingPeople = new Map<string, string>();
+    const existingPeople = new Map<string, { id: string } & ProfileValues>();
     for (const emailChunk of chunkForBind(
       creates.map((row) => row.email),
       1,
     )) {
       if (emailChunk.length === 0) continue;
       const found = await db
-        .select({ id: people.id, email: people.email })
+        .select({
+          id: people.id,
+          email: people.email,
+          // SPK-02: the current profile, so a fill can tell blank from written.
+          fullName: people.fullName,
+          title: people.title,
+          company: people.company,
+          bio: people.bio,
+        })
         .from(people)
         .where(inArray(people.email, emailChunk));
-      found.forEach((person) => existingPeople.set(person.email, person.id));
+      found.forEach((person) => existingPeople.set(person.email, person));
     }
 
-    const plannedPeople = creates.map((row) => ({
-      row,
-      personId: existingPeople.get(row.email) ?? crypto.randomUUID(),
-      exists: existingPeople.has(row.email),
-    }));
+    const plannedPeople = creates.map((row) => {
+      const match = existingPeople.get(row.email) ?? null;
+      return { row, personId: match?.id ?? crypto.randomUUID(), existing: match };
+    });
     const newPeople = plannedPeople
-      .filter((entry) => !entry.exists)
+      .filter((entry) => !entry.existing)
       .map(({ row, personId }) => ({
         id: personId,
         email: row.email,
@@ -265,8 +327,22 @@ export async function action({ request }: Route.ActionArgs) {
       personId,
       eventRole: "speaker",
     }));
+    /*
+     * SPK-02 through the bulk door. `parseSpeakerCsv` classifies against THIS
+     * EVENT'S roster, so someone who exists globally but has never been on this
+     * event arrives here as a "create" — and the insert above skips them. One
+     * fill per such person, so the Company and Bio columns an organizer
+     * prepared in the spreadsheet stop evaporating on commit.
+     */
+    const fills = plannedPeople.flatMap(({ row, personId, existing }) => {
+      if (!existing) return [];
+      const patch = blankProfileFill(existing, row);
+      if (Object.keys(patch).length === 0) return [];
+      return [db.update(people).set(patch).where(eq(people.id, personId))];
+    });
     const statements: BatchStatement[] = [
       ...chunkedInsert(newPeople, (chunk) => db.insert(people).values(chunk)),
+      ...fills,
       ...chunkedInsert(links, (chunk) =>
         db.insert(eventPeople).values(chunk).onConflictDoNothing(),
       ),

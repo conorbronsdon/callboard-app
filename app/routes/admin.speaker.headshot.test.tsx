@@ -26,7 +26,7 @@ import { installTestDb, type TestDbContext } from "~/test/db";
 import { createTestR2, type TestR2 } from "~/test/r2";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
-import { SpeakerView, action, loader } from "./admin.speaker";
+import { SpeakerView, action, loader, speakerLoaderPayload } from "./admin.speaker";
 
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
 
@@ -43,11 +43,13 @@ beforeEach(async () => {
 afterEach(() => ctx.close());
 
 const load = async (id: string) =>
-  loader({
-    request: await signedInGet(`https://x.test/admin/speakers/${id}`, fixture.adminId),
-    params: { id },
-    context: {},
-  } as unknown as Parameters<typeof loader>[0]);
+  speakerLoaderPayload(
+    await loader({
+      request: await signedInGet(`https://x.test/admin/speakers/${id}`, fixture.adminId),
+      params: { id },
+      context: {},
+    } as unknown as Parameters<typeof loader>[0]),
+  );
 
 async function post(id: string, fields: Record<string, string>) {
   return action({

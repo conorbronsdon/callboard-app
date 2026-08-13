@@ -23,7 +23,11 @@ import { signedInGet } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
-import { SpeakerView, loader as speakerLoader } from "./admin.speaker";
+import {
+  SpeakerView,
+  loader as speakerLoader,
+  speakerLoaderPayload,
+} from "./admin.speaker";
 import {
   SubmissionDetailView,
   loader as submissionLoader,
@@ -53,7 +57,9 @@ afterEach(() => ctx.close());
 async function speakerHtml(): Promise<string> {
   const id = fixture.speakerIds[0];
   const request = await signedInGet(`https://x.test/admin/speakers/${id}`, fixture.adminId);
-  const data = await speakerLoader({ request, params: { id }, context: {} } as never);
+  const data = speakerLoaderPayload(
+    await speakerLoader({ request, params: { id }, context: {} } as never),
+  );
   return renderToStaticMarkup(<SpeakerView {...data} />);
 }
 

@@ -101,7 +101,13 @@ import {
   triageSubmission,
 } from "~/lib/review/ai-triage.server";
 import { applyAbstractStatus } from "~/lib/review/commit.server";
-import { choiceSummaries, type ChoiceSummary } from "~/lib/review/aggregate";
+import {
+  aggregateFor,
+  choiceSummaries,
+  rubricMaxTotal,
+  weightedAggregateFor,
+  type ChoiceSummary,
+} from "~/lib/review/aggregate";
 import { isAdminAssignable, parseTab, statusLabel, tabFor } from "~/lib/review/pipeline";
 import { socialHref } from "~/lib/social-href";
 import {
@@ -567,15 +573,30 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           : null,
         assignedTeams: assigned.map((assignment) => assignment.teamName),
         canReview: assigned.some((assignment) => assignment.reviewerId === admin.id),
-        aggregate:
-          submitted.length > 0
-            ? {
-                reviewerCount: submitted.length,
-                averageScore:
-                  submitted.reduce((sum, review) => sum + (review.totalScore ?? 0), 0) /
-                  submitted.length,
-              }
-            : null,
+        /*
+         * COUNTED reviews, not merely submitted ones.
+         *
+         * This average used to be an inline reduce over every submitted row,
+         * which meant it included recusals — so a submission with one genuine
+         * review of 10 and one recused reviewer's 15 read "2 submitted ·
+         * average 12.5 / 15" here while the submissions list, the CSV and the
+         * score export all said one review of 10. Both numbers were defensible
+         * on their own and neither said which population it covered, which is
+         * the same defect as ABS-10 one level down.
+         *
+         * `weightedAggregateFor` is the list's own function, so the two screens
+         * cannot drift again without a test in aggregate.test.ts going red.
+         * `choiceSummaries` on the next line has always excluded recusals; this
+         * aggregate was the odd one out in its own object literal.
+         */
+        aggregate: (() => {
+          const rubricByRound = new Map([[round.id, parsedRubric]]);
+          const weighted = weightedAggregateFor(submitted, rubricByRound);
+          const counted = aggregateFor(submitted, rubricByRound).reviewCount;
+          return weighted.average === null || counted === 0
+            ? null
+            : { reviewerCount: counted, averageScore: weighted.average };
+        })(),
         choices: choiceSummaries(parsedRubric, submitted),
         submittedReviews: submitted.map((review) => ({
           reviewerId: review.reviewerId,
@@ -1258,9 +1279,8 @@ export function SubmissionDetailView({
            */
           <div className={`mt-4 grid gap-4 ${rounds.length > 1 ? "lg:grid-cols-2" : "max-w-2xl"}`}>
             {rounds.map((round) => {
-              const maxScore = round.rubric.criteria.reduce(
-                (sum, criterion) => sum + criterion.max * criterion.weight, 0,
-              );
+              // The list prints the same denominator from the same function.
+              const maxScore = rubricMaxTotal(round.rubric);
               return (
                 <div key={round.id} className="space-y-3">
                 <form method="post"
@@ -1278,8 +1298,10 @@ export function SubmissionDetailView({
                   </div>
                   <p className="text-xs text-gray-500">
                     Assigned to {round.assignedTeams.length ? round.assignedTeams.join(", ") : "no team"}
+                    {/* The count comes from the aggregate itself, so "N submitted"
+                        and the average it precedes always describe the same rows. */}
                     {round.aggregate
-                      ? ` · ${round.submittedReviews.length} submitted · average ${round.aggregate.averageScore.toFixed(1)} / ${maxScore}`
+                      ? ` · ${round.aggregate.reviewerCount} submitted · average ${round.aggregate.averageScore.toFixed(1)} / ${maxScore}`
                       : " · no submitted reviews"}
                   </p>
                   {round.choices.length > 0 ? (

@@ -15,9 +15,11 @@
  * assertions on loader data.
  */
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { redirect } from "react-router";
+import { useEffect, useRef } from "react";
+import { redirect, useFetcher } from "react-router";
 
 import { StatusCell } from "~/components/admin-status";
+import { ClientOnly } from "~/components/ClientOnly";
 import { buttonClass } from "~/components/portal-ui";
 import { eyebrowClass, LaneStub, linkClass, PageHeader, TrackChip } from "~/components/shell";
 import { chunkForBind, getDb, type DB } from "~/db/client.server";
@@ -45,7 +47,14 @@ import {
 } from "~/lib/capture";
 import { currentEvent } from "~/lib/event.server";
 import { appUrl } from "~/lib/env.server";
-import { aggregateFor } from "~/lib/review/aggregate";
+import {
+  aggregateFor,
+  disagreementFor,
+  isContested,
+  weightedAggregateFor,
+  type Disagreement,
+  type WeightedAggregate,
+} from "~/lib/review/aggregate";
 /*
  * TWO imports on purpose. `AI_TRIAGE_BULK_CAP` is read by the VIEW (the bulk
  * button's title copy), and React Router refuses to bundle a `*.server` module
@@ -54,8 +63,13 @@ import { aggregateFor } from "~/lib/review/aggregate";
  * full-screen "Server-only module referenced by client" overlay. The pure
  * sibling exists so a component can read the constant.
  */
-import { AI_TRIAGE_BULK_CAP } from "~/lib/review/ai-triage";
-import { triageBinding, triageMany } from "~/lib/review/ai-triage.server";
+import { AI_TRIAGE_BULK_BATCH, AI_TRIAGE_BULK_CAP } from "~/lib/review/ai-triage";
+import {
+  currentRoundCriteria,
+  planTriageBatch,
+  triageBinding,
+  triageMany,
+} from "~/lib/review/ai-triage.server";
 import { applyAbstractStatus, commitQueues } from "~/lib/review/commit.server";
 import {
   ADMIN_ASSIGNABLE_STATUSES,
@@ -92,14 +106,34 @@ export interface AbstractRow {
   speakers: string[];
   /** Same people, with the ids the name chips link to. */
   speakerLinks: { id: string; name: string }[];
+  /**
+   * Mean of the reviewers' averages on the criterion scale. Comparable across
+   * rubrics, so it stays the SORT key — but it is no longer what the cell
+   * prints. See `weighted`.
+   */
   aggregateScore: number | null;
   reviewCount: number;
+  /**
+   * What the cell prints: the weighted total over the round maximum, the same
+   * representation the submission detail page has always shown (ABS-10).
+   */
+  weighted: WeightedAggregate;
+  /** How far apart the reviewers landed. Advisory; nothing gates on it. */
+  disagreement: Disagreement;
+  contested: boolean;
 }
 
-export type SubmissionScoreSort = "score-desc" | "score-asc";
+/**
+ * `contested-desc` rides in the same parameter as the score sort because it
+ * orders the same column: the badge lives in the score cell, and a list can
+ * only be in one order at a time.
+ */
+export type SubmissionScoreSort = "score-desc" | "score-asc" | "contested-desc";
 
 function parseScoreSort(value: string | null): SubmissionScoreSort | null {
-  return value === "score-desc" || value === "score-asc" ? value : null;
+  return value === "score-desc" || value === "score-asc" || value === "contested-desc"
+    ? value
+    : null;
 }
 
 export function listUrl(
@@ -297,7 +331,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const rows = rowsRaw.map((row): AbstractRow => {
-    const aggregate = aggregateFor(reviewsBySession.get(row.id) ?? [], rubricByRound);
+    const sessionReviews = reviewsBySession.get(row.id) ?? [];
+    const aggregate = aggregateFor(sessionReviews, rubricByRound);
+    const disagreement = disagreementFor(sessionReviews, rubricByRound);
     return {
       id: row.id,
       friendlyId: row.friendlyId,
@@ -311,14 +347,36 @@ export async function loader({ request }: Route.LoaderArgs) {
       speakerLinks: speakersBySession.get(row.id) ?? [],
       aggregateScore: aggregate.average,
       reviewCount: aggregate.reviewCount,
+      weighted: weightedAggregateFor(sessionReviews, rubricByRound),
+      disagreement,
+      contested: isContested(disagreement),
     };
   });
 
-  if (sort) {
+  /** Newest first, then id — the order every sort falls back to. */
+  const tiebreak = (left: AbstractRow, right: AbstractRow) =>
+    Date.parse(right.submittedAt ?? "") - Date.parse(left.submittedAt ?? "") ||
+    left.id.localeCompare(right.id);
+
+  if (sort === "contested-desc") {
+    /*
+     * The committee call's agenda: widest reviewer disagreement first. Rows
+     * with no disagreement — including every row with fewer than two reviews —
+     * sink below every row that has one, rather than being scattered through
+     * it by their scores.
+     */
+    rows.sort((left, right) => {
+      const leftGap = left.disagreement.gap;
+      const rightGap = right.disagreement.gap;
+      if (leftGap === null && rightGap === null) return tiebreak(left, right);
+      if (leftGap === null) return 1;
+      if (rightGap === null) return -1;
+      return rightGap - leftGap || tiebreak(left, right);
+    });
+  } else if (sort) {
     rows.sort((left, right) => {
       if (left.aggregateScore === null && right.aggregateScore === null) {
-        const created = Date.parse(right.submittedAt ?? "") - Date.parse(left.submittedAt ?? "");
-        return created || left.id.localeCompare(right.id);
+        return tiebreak(left, right);
       }
       if (left.aggregateScore === null) return 1;
       if (right.aggregateScore === null) return -1;
@@ -326,8 +384,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         sort === "score-desc"
           ? right.aggregateScore - left.aggregateScore
           : left.aggregateScore - right.aggregateScore;
-      const created = Date.parse(right.submittedAt ?? "") - Date.parse(left.submittedAt ?? "");
-      return score || created || left.id.localeCompare(right.id);
+      return score || tiebreak(left, right);
     });
   }
 
@@ -362,6 +419,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 /* ------------------------------------------------------------- action */
+
+/** A cumulative counter echoed back by the client: floor it, clamp it, trust nothing. */
+function boundedCount(value: FormDataEntryValue | null): number {
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), AI_TRIAGE_BULK_CAP) : 0;
+}
 
 function optionalDate(value: FormDataEntryValue | null): Date | null {
   const raw = String(value ?? "").trim();
@@ -486,11 +549,63 @@ export async function action({ request }: Route.ActionArgs) {
       .orderBy(desc(sessions.createdAt))
       .limit(AI_TRIAGE_BULK_CAP);
 
+    /*
+     * ONE BATCH PER REQUEST.
+     *
+     * The query above is unchanged — same cap, same "skip anything already
+     * triaged" join — so a run is still at most `AI_TRIAGE_BULK_CAP` abstracts
+     * and pressing the button twice is still not a second inference bill. What
+     * changed is that a request no longer runs the whole cap before answering:
+     * it scores `plan.take` of them and reports `{ done, total }`, and the
+     * client (or a human pressing Continue) comes back for the next batch.
+     *
+     * `done`, `total`, `scored` and `failed` come off a form, so they are
+     * untrusted. `planTriageBatch` floors and clamps all of them and re-bounds
+     * the run by what is actually still pending.
+     *
+     * TERMINATION, precisely. For a client that echoes the response back — the
+     * island below, and the Continue button — `done` strictly advances until
+     * the action redirects. For ANY client, including one that replays a stale
+     * cursor forever, each request either scores at least one row (which the
+     * `isNull(aiTriage.id)` join then permanently excludes) or redirects, so
+     * the un-triaged set strictly shrinks and the loop is finite.
+     *
+     * A client that resets its cursor is not an escalation, it is the button
+     * being pressed again: on `main` one press scored up to twelve, and the
+     * cap has always bounded a REQUEST rather than a person. A rolled-back
+     * cursor now buys four inference calls where a second press used to buy
+     * twelve.
+     */
+    const runningScored = boundedCount(formData.get("scored"));
+    const runningFailed = boundedCount(formData.get("failed"));
+    const plan = planTriageBatch({
+      done: formData.get("done"),
+      total: formData.get("total"),
+      pending: pending.length,
+    });
+
+    // Clamped again on the way out: these two ride in the URL and become the
+    // notice, and a client is free to echo back a pair that sums to more than
+    // one run ever scores.
+    const finish = (scored: number, failed: number) =>
+      redirect(
+        listUrl(
+          tab,
+          trackFilter,
+          `&ai=${Math.min(scored, AI_TRIAGE_BULK_CAP)}&aif=${Math.min(failed, AI_TRIAGE_BULK_CAP)}`,
+        ),
+      );
+
+    if (plan.complete) return finish(runningScored, runningFailed);
+
     const result = await triageMany(db, {
       eventId: event.id,
       requestedById: admin.id,
       ai,
-      targets: pending.map((row) => ({
+      // The committee's own criterion names, so the rationale comes back in
+      // their vocabulary. Empty for an event with no round: prompt unchanged.
+      criteria: await currentRoundCriteria(db, event.id),
+      targets: pending.slice(0, plan.take).map((row) => ({
         sessionId: row.id,
         submission: {
           title: row.title,
@@ -501,7 +616,16 @@ export async function action({ request }: Route.ActionArgs) {
       })),
     });
 
-    return redirect(listUrl(tab, trackFilter, `&ai=${result.ok}&aif=${result.failed}`));
+    const processed = result.ok + result.failed;
+    const scored = runningScored + result.ok;
+    const failed = runningFailed + result.failed;
+    const done = plan.done + processed;
+
+    // A short batch means the rows ran out underneath us, so the run is over
+    // whatever `total` said.
+    if (done >= plan.total || processed < plan.take) return finish(scored, failed);
+
+    return { ok: true as const, triage: { done, total: plan.total, scored, failed } };
   }
 
   if (intent === "commit-queues") {
@@ -898,6 +1022,205 @@ function CaptureDrawer({
   );
 }
 
+/* ------------------------------------------------- bulk triage progress */
+
+export interface TriageProgress {
+  done: number;
+  total: number;
+  scored: number;
+  failed: number;
+}
+
+const triageProgressOf = (value: unknown): TriageProgress | undefined => {
+  const triage = (value as { ok?: boolean; triage?: TriageProgress } | undefined)?.triage;
+  return triage && triage.done < triage.total ? triage : undefined;
+};
+
+/**
+ * The bulk button, and the run it is halfway through.
+ *
+ * Router-free by construction, like the rest of this page: it is a plain
+ * `<form method="post">` whose hidden fields carry the run's position, so with
+ * no client JS at all an organizer sees "Scoring 4 of 12…" and presses Continue
+ * twice. `BulkTriageLive` below is the same form with the presses automated.
+ */
+function BulkTriageControl({
+  tab,
+  trackId,
+  progress,
+  busy = false,
+  FormTag = "form",
+}: {
+  tab: SessionStatus;
+  trackId: string | null;
+  progress?: TriageProgress;
+  busy?: boolean;
+  FormTag?: React.ElementType;
+}) {
+  return (
+    <FormTag method="post" className="flex items-center gap-2">
+      <input type="hidden" name="intent" value="run-ai-triage-bulk" />
+      <input type="hidden" name="tab" value={tab} />
+      {trackId ? <input type="hidden" name="track" value={trackId} /> : null}
+      {progress ? (
+        <>
+          <input type="hidden" name="done" value={progress.done} />
+          <input type="hidden" name="total" value={progress.total} />
+          <input type="hidden" name="scored" value={progress.scored} />
+          <input type="hidden" name="failed" value={progress.failed} />
+          {/*
+            * `aria-live` because this text is the entire answer to "is it
+            * working?" — the complaint that started this was a button that
+            * looked identical for twenty-two seconds.
+            */}
+          <span
+            data-testid="bulk-ai-triage-progress"
+            aria-live="polite"
+            className="self-center text-xs text-gray-600 dark:text-gray-300"
+          >
+            {`Scoring ${progress.done} of ${progress.total}…`}
+          </span>
+          <button
+            type="submit"
+            data-testid="bulk-ai-triage-continue"
+            className={GHOST_BUTTON}
+            disabled={busy}
+          >
+            Continue
+          </button>
+        </>
+      ) : (
+        <button
+          type="submit"
+          data-testid="bulk-ai-triage"
+          className={GHOST_BUTTON}
+          disabled={busy}
+          title={`Scores up to ${AI_TRIAGE_BULK_CAP} pending abstracts that have no AI first pass yet, ${AI_TRIAGE_BULK_BATCH} at a time. Advisory only.`}
+        >
+          {busy ? "Scoring…" : "Run AI triage on pending"}
+        </button>
+      )}
+    </FormTag>
+  );
+}
+
+/**
+ * The same control once the browser has hydrated: the batches chain themselves.
+ *
+ * This is the only client-side behaviour on the page, and it is deliberately
+ * fenced inside `ClientOnly` — the module-level contract at the top of this file
+ * is that the markup renders under `renderToStaticMarkup` with NO router, which
+ * a bare `useFetcher()` would break for every render test of this route.
+ *
+ * Termination is the server's guarantee, not this effect's: the action either
+ * advances `done` or answers with a redirect (see `planTriageBatch`), so the
+ * chain cannot spin. The ref is belt and braces against React re-running the
+ * effect for the same response.
+ */
+function BulkTriageLive({
+  tab,
+  trackId,
+  initial,
+}: {
+  tab: SessionStatus;
+  trackId: string | null;
+  initial?: TriageProgress;
+}) {
+  const fetcher = useFetcher();
+  const progress = triageProgressOf(fetcher.data) ?? initial;
+  const continuedAt = useRef(-1);
+
+  useEffect(() => {
+    if (fetcher.state !== "idle") return;
+    const next = triageProgressOf(fetcher.data);
+    if (!next || continuedAt.current === next.done) return;
+    continuedAt.current = next.done;
+    fetcher.submit(
+      {
+        intent: "run-ai-triage-bulk",
+        tab,
+        ...(trackId ? { track: trackId } : {}),
+        done: String(next.done),
+        total: String(next.total),
+        scored: String(next.scored),
+        failed: String(next.failed),
+      },
+      { method: "post" },
+    );
+  }, [fetcher, tab, trackId]);
+
+  return (
+    <BulkTriageControl
+      tab={tab}
+      trackId={trackId}
+      progress={progress}
+      busy={fetcher.state !== "idle"}
+      FormTag={fetcher.Form}
+    />
+  );
+}
+
+/**
+ * The score as the detail page states it: weighted total over the round
+ * maximum. The list used to print `aggregateScore.toFixed(2)` — the same review
+ * as "3.00" where the detail page said "15.0 / 25" — and nothing on either
+ * screen said which was which, so the pair read as a scoring bug (ABS-10).
+ *
+ * The fallback carries its own label. When a submission's counted reviews span
+ * rounds whose rubrics have different maxima there is no honest denominator, so
+ * the cell says "3.33 avg" rather than inventing one.
+ */
+function ScoreReading({
+  weighted,
+  criterionAverage,
+}: {
+  weighted: WeightedAggregate;
+  criterionAverage: number | null;
+}) {
+  if (weighted.average !== null && weighted.max !== null) {
+    return (
+      <span title="Weighted total, averaged across submitted reviews — the same number the submission page shows.">
+        {weighted.average.toFixed(1)} / {weighted.max}
+      </span>
+    );
+  }
+  if (criterionAverage !== null) {
+    return (
+      <span title="Reviews from rounds with different rubrics, so there is no shared maximum. This is the average on the criterion scale.">
+        {criterionAverage.toFixed(2)} <span className="text-xs font-normal text-gray-500">avg</span>
+      </span>
+    );
+  }
+  return <>—</>;
+}
+
+/**
+ * Advisory only. It says the panel disagreed, which is an agenda item, not a
+ * decision — no status, queue or gate reads this.
+ */
+function ContestedBadge({ row }: { row: AbstractRow }) {
+  const { gapWeighted, weightedSpan, reviewCount } = row.disagreement;
+  /*
+   * The denominator is the widest gap the rubric ALLOWS, not the highest score
+   * it allows. On a 90-100 criterion those differ by an order of magnitude, and
+   * the maximum would describe total deadlock as a ten-percent quibble.
+   */
+  const spread =
+    gapWeighted === null || weightedSpan === null
+      ? "Reviewers disagree"
+      : `Widest gap ${gapWeighted.toFixed(1)} of ${weightedSpan} possible across ${reviewCount} reviews in one round`;
+
+  return (
+    <span
+      data-testid={`contested-${row.id}`}
+      title={`${spread}. Advisory only — nothing about the decision changes.`}
+      className="mt-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900 ring-1 ring-amber-200 ring-inset dark:bg-amber-900/30 dark:text-amber-200 dark:ring-amber-800"
+    >
+      Contested
+    </span>
+  );
+}
+
 export type AbstractsViewProps = Omit<
   Awaited<ReturnType<typeof loader>>,
   "sort" | "aiAvailable" | "notifyFailed"
@@ -907,7 +1230,10 @@ export type AbstractsViewProps = Omit<
   aiAvailable?: boolean;
   /** Optional so hand-built render-test props stay short. */
   notifyFailed?: number;
-  actionData?: { ok: false; error: string } | undefined;
+  actionData?:
+    | { ok: false; error: string }
+    | { ok: true; triage: TriageProgress }
+    | undefined;
 };
 
 export function AbstractsView({
@@ -936,6 +1262,12 @@ export function AbstractsView({
   }
 
   const queueTotal = queue.accept + queue.decline;
+  /*
+   * A run that answered with progress rather than a redirect. It arrives as
+   * `actionData` on the no-JS path (a document POST re-rendering this page) and
+   * is handed to the hydrated island as its starting point.
+   */
+  const bulkProgress = triageProgressOf(actionData);
   const nextScoreSort = sort === "score-desc" ? "score-asc" : sort === "score-asc" ? null : "score-desc";
 
   return (
@@ -951,19 +1283,13 @@ export function AbstractsView({
           {/* Advisory first pass over the Pending tab. Capped and sequential —
               see AI_TRIAGE_BULK_CAP — and it never moves a status. */}
           {aiAvailable ? (
-            <form method="post">
-              <input type="hidden" name="intent" value="run-ai-triage-bulk" />
-              <input type="hidden" name="tab" value={tab} />
-              {trackId ? <input type="hidden" name="track" value={trackId} /> : null}
-              <button
-                type="submit"
-                data-testid="bulk-ai-triage"
-                className={GHOST_BUTTON}
-                title={`Scores up to ${AI_TRIAGE_BULK_CAP} pending abstracts that have no AI first pass yet. Advisory only.`}
-              >
-                Run AI triage on pending
-              </button>
-            </form>
+            <ClientOnly
+              fallback={
+                <BulkTriageControl tab={tab} trackId={trackId} progress={bulkProgress} />
+              }
+            >
+              {() => <BulkTriageLive tab={tab} trackId={trackId} initial={bulkProgress} />}
+            </ClientOnly>
           ) : (
             <span
               data-testid="bulk-ai-triage-unavailable"
@@ -1138,8 +1464,28 @@ export function AbstractsView({
                 className="py-2.5 pr-3 font-medium"
                 aria-sort={sort === "score-desc" ? "descending" : sort === "score-asc" ? "ascending" : "none"}
               >
-                <a href={listUrl(tab, trackId, "", nextScoreSort)} className={linkClass}>
+                <a
+                  href={listUrl(tab, trackId, "", nextScoreSort)}
+                  className={linkClass}
+                  title="Weighted total out of the round maximum, averaged across submitted reviews."
+                >
                   Score
+                </a>
+                {/*
+                  * The second ordering of the same column: the agenda for the
+                  * committee call, widest reviewer disagreement first.
+                  */}
+                <a
+                  href={listUrl(tab, trackId, "", sort === "contested-desc" ? null : "contested-desc")}
+                  data-testid="sort-contested"
+                  aria-pressed={sort === "contested-desc"}
+                  className={`ml-2 text-[11px] font-normal ${
+                    sort === "contested-desc"
+                      ? "text-amber-800 underline dark:text-amber-300"
+                      : linkClass
+                  }`}
+                >
+                  Most contested
                 </a>
               </th>
               <th className="py-2 pr-3 font-medium">Status</th>
@@ -1229,11 +1575,15 @@ export function AbstractsView({
                          * submission nobody had opened.
                          */}
                         <div className="font-medium text-gray-900 dark:text-gray-100">
-                          {row.aggregateScore === null ? "—" : row.aggregateScore.toFixed(2)}
+                          <ScoreReading
+                            weighted={row.weighted}
+                            criterionAverage={row.aggregateScore}
+                          />
                         </div>
                         <div className="text-xs text-gray-500">
                           {row.reviewCount} review{row.reviewCount === 1 ? "" : "s"}
                         </div>
+                        {row.contested ? <ContestedBadge row={row} /> : null}
                       </>
                     )}
                   </td>

@@ -14,7 +14,7 @@
  * same note in admin.submission.tsx.
  */
 import { and, desc, eq, isNull } from "drizzle-orm";
-
+import { data } from "react-router";
 
 import { StatusPill } from "~/components/admin-status";
 import { BioEditor } from "~/components/BioEditor";
@@ -334,7 +334,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   ]);
 
   const found = personResult[0];
-  if (!found) return empty;
+  /*
+   * A person absent from this event is a MISSING RESOURCE, not an empty state,
+   * so it answers 404 while keeping the friendly body this route renders.
+   * `data()` rather than `throw new Response(404)`, which would surrender the
+   * screen to the root ErrorBoundary. The `!event` branch above deliberately
+   * stays 200: nothing is missing there, the instance just has no event yet.
+   *
+   * The sibling of PR #145 finding 5, which fixed the identical shape on
+   * /admin/submissions/:id and named this route as carrying it too.
+   */
+  if (!found) return data(empty, { status: 404 });
   const headshotRow = headshotResult[0];
 
   return {
@@ -383,6 +393,44 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   };
 }
 
+/**
+ * Strip React Router's `data()` wrapper back off a loader return type.
+ *
+ * Returning `data(empty, { status: 404 })` from ONE branch widens the whole
+ * loader to `Payload | DataWithResponseInit<Payload>`, a union whose arms share
+ * no properties — so `.speaker` stops existing for this component's props and
+ * for the four test files that call this loader directly. `T` is naked, so the
+ * conditional DISTRIBUTES over the union and maps both arms back to a payload;
+ * attaching a status stays a runtime concern instead of leaking into consumers.
+ *
+ * Matched structurally because react-router only exports the class as
+ * `UNSAFE_DataWithResponseInit` and types its `type` field as `string`, leaving
+ * no discriminant. Deliberately a local twin of the helper admin.submission.tsx
+ * introduced in #145: two routes is not yet a shared module, and a third one
+ * needing it is the signal to extract rather than copy again.
+ */
+type UnwrapData<T> = T extends { type: string; data: infer P; init: ResponseInit | null }
+  ? P
+  : T;
+
+/** The loader's payload, with any `data()` wrapper removed. */
+export type SpeakerLoaderData = UnwrapData<Awaited<ReturnType<typeof loader>>>;
+
+/**
+ * Unwrap a DIRECT `loader()` call — the shape this suite calls loaders in.
+ * React Router strips the wrapper before a component sees it, so only unit
+ * tests invoking the loader as a plain function need this.
+ */
+export function speakerLoaderPayload(
+  result: Awaited<ReturnType<typeof loader>>,
+): SpeakerLoaderData {
+  return (
+    result && typeof result === "object" && "data" in result && "init" in result
+      ? (result as { data: SpeakerLoaderData }).data
+      : result
+  ) as SpeakerLoaderData;
+}
+
 const CARD = "rounded-lg border border-gray-200 p-4 dark:border-gray-800";
 
 export function SpeakerView({
@@ -391,7 +439,7 @@ export function SpeakerView({
   submissions,
   files,
   actionData,
-}: Awaited<ReturnType<typeof loader>> & {
+}: SpeakerLoaderData & {
   actionData?: { ok: false; error: string } | { ok: true; notice: string };
 }) {
   if (!speaker) {
