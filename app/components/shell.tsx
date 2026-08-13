@@ -2,6 +2,7 @@
  * Shared layout chrome. No client JS beyond React Router's own; public pages
  * must stay fast.
  */
+import { useEffect } from "react";
 import { Form, NavLink, useLocation } from "react-router";
 
 import {
@@ -83,6 +84,42 @@ export function Shell({
   const location = useLocation();
   const hasGroupedNav = nav?.some(isAdminNavGroup) ?? false;
 
+  /*
+   * Progressive enhancement over the native disclosure below, NOT a
+   * replacement for it. `open={isGroupActive || undefined}` only tells React
+   * what to render on mount/SSR — it does not "control" the element the way
+   * `value`/`checked` do. A native click toggles the real DOM attribute
+   * directly, React never sees it, and because this Shell lives inside a
+   * layout route it does NOT remount between admin pages — only `<Outlet/>`
+   * changes. So a group whose `isGroupActive` prop happens to read `false`
+   * on both the render before AND after a click looks "unchanged" to React,
+   * which skips writing the DOM attribute, and the user's manual open just
+   * sits there forever. Explore three groups across a session and all three
+   * stay open — the bug Conor found.
+   *
+   * This effect is the fix for the second half (state surviving navigation);
+   * `name="admin-nav"` below is the fix for the first half (more than one
+   * open at once) and needs no JS at all. Runs client-side only, on route
+   * change, and does nothing without JavaScript — the server-rendered
+   * `open` attribute above is already correct on a fresh/no-JS load, so
+   * there is nothing for this effect to fix in that case.
+   */
+  useEffect(() => {
+    if (!hasGroupedNav) return;
+    for (const entry of nav ?? []) {
+      if (!isAdminNavGroup(entry)) continue;
+      const details = document.querySelector<HTMLDetailsElement>(
+        `[data-testid="admin-nav-group-${entry.key}"]`,
+      );
+      if (!details) continue;
+      details.open = entry.items.some((item) => navLinkMatchesPath(location.pathname, item));
+    }
+    // `nav` is intentionally not a dependency: its grouping is stable for the
+    // life of the session (only `reviewerWorkspace`'s href varies, which does
+    // not change which group is active), so re-running this on every new
+    // `nav` array identity would just be extra work for the same result.
+  }, [location.pathname, hasGroupedNav]);
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
       <header className="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
@@ -149,6 +186,18 @@ export function Shell({
                 <details
                   key={entry.key}
                   data-testid={`admin-nav-group-${entry.key}`}
+                  /*
+                   * A shared `name` puts every group in one exclusive
+                   * accordion set: the HTML living standard requires the
+                   * browser to close the others the instant any one of them
+                   * opens, whether that open comes from a click or from a
+                   * script setting `.open`/the attribute — no JS required,
+                   * and supported in every current evergreen browser. This
+                   * alone stops "several groups open at once"; the effect
+                   * above stops "the wrong group is still open after I
+                   * navigated away from it".
+                   */
+                  name="admin-nav"
                   open={isGroupActive || undefined}
                   className="group relative max-w-full"
                 >

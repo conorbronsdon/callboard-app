@@ -6,7 +6,7 @@
  * send — URL, verb, upsert key, batch size — rather than about a mock's shape.
  */
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { people, sessionParticipants, sessions, syncState } from "~/db/schema";
 import { installTestDb, type TestDbContext } from "~/test/db";
@@ -495,5 +495,31 @@ describe("PII containment", () => {
     expect(joined).toContain("rina");
     expect(joined).not.toContain("rina@example.com");
     expect(joined).not.toContain("@");
+  });
+});
+
+describe("workerd receiver enforcement", () => {
+  it("MUST FIRE: the default fetch path never calls the platform fetch with a foreign `this` (workerd Illegal invocation)", async () => {
+    ctx.close();
+    ctx = installTestDb(CONFIG);
+    await seedDemoFixture(ctx.db);
+    const calls: string[] = [];
+    function strictFetch(this: unknown, input: RequestInfo | URL): Promise<Response> {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError("Illegal invocation: function called with incorrect `this` reference.");
+      }
+      calls.push(String(input));
+      return Promise.resolve(
+        new Response(JSON.stringify({ records: [] }), { status: 200 }),
+      );
+    }
+    vi.stubGlobal("fetch", strictFetch);
+    try {
+      const result = await runAirtableMirror({ sleep: noSleep });
+      expect(calls.length).toBeGreaterThan(0);
+      expect(JSON.stringify(result)).not.toContain("Illegal invocation");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

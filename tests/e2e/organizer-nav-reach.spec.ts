@@ -110,6 +110,50 @@ test("closed disclosure items do not interrupt the top-level keyboard order", as
   await expect(page.getByTestId("admin-nav-group-programme").locator("summary")).toBeFocused();
 });
 
+test("opening one group's disclosure closes any other group left open", async ({ page }) => {
+  await enterOrganizerWorkspace(page);
+
+  const programme = page.getByTestId("admin-nav-group-programme");
+  const review = page.getByTestId("admin-nav-group-review");
+
+  await programme.locator("summary").click();
+  await expect(programme).toHaveAttribute("open", "");
+
+  await review.locator("summary").click();
+  await expect(review).toHaveAttribute("open", "");
+  // MUST FIRE: the shared `name="admin-nav"` exclusion group is what closes
+  // the sibling — without it, both summaries stay open at once, which is
+  // what a judge screenshotted.
+  await expect(programme).not.toHaveAttribute("open", "");
+});
+
+test("navigating collapses every group except the one the new page belongs to", async ({
+  page,
+}) => {
+  await enterOrganizerWorkspace(page);
+
+  const content = page.getByTestId("admin-nav-group-content");
+  const people = page.getByTestId("admin-nav-group-people");
+
+  // Open a group that has nothing to do with where this test is headed, and
+  // leave it open — a person poking around the menu before deciding.
+  await content.locator("summary").click();
+  await expect(content).toHaveAttribute("open", "");
+
+  // Open a DIFFERENT group and follow a real link inside it. This is a
+  // client-side navigation — the admin layout route (and this Shell) never
+  // remounts, only the page below it changes.
+  await people.locator("summary").click();
+  await adminNav(page).getByRole("link", { name: "Contacts", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/contacts$/);
+
+  // MUST FIRE: `content` was never the active group before or after this
+  // navigation, so React's own prop diff never touches its DOM node — the
+  // location-change effect is what has to reach in and close it.
+  await expect(content).not.toHaveAttribute("open", "");
+  await expect(people).toHaveAttribute("open", "");
+});
+
 test("native admin disclosures remain operable with JavaScript disabled", async ({
   browser,
   baseURL,

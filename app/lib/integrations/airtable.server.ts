@@ -320,7 +320,11 @@ export async function runAirtableMirror(deps: MirrorDeps = {}): Promise<MirrorRe
   }
 
   const resolved = {
-    fetchImpl: deps.fetchImpl ?? fetch,
+    // Bare `fetch` stored on an object and invoked as `resolved.fetchImpl(...)`
+    // arrives with `this` = the deps object; workerd rejects that as an Illegal
+    // invocation (Node's fetch does not care, so unit tests stay green). Wrap it
+    // so the call site's receiver never reaches the platform function.
+    fetchImpl: deps.fetchImpl ?? ((...args: Parameters<typeof fetch>) => fetch(...args)),
     sleep: deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))),
   };
 

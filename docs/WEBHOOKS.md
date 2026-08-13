@@ -62,6 +62,8 @@ Endpoint secrets are stored in plaintext because future HMACs require the origin
 
 ## Svix driver
 
+[Svix](https://link.svix.com/cot) is a managed webhook-delivery service: it takes over retries, endpoint management, and delivery observability so you do not run that infrastructure yourself. Callboard does not require it — the built-in driver above signs and delivers to any endpoint you choose with no third-party service at all. The judged demo deployment is set up with Svix as a working example of the managed driver; self-hosters can use Svix, any equivalent service in front of the built-in driver, or nothing beyond the built-in driver.
+
 Set both `SVIX_TOKEN` and `SVIX_APP_ID` to select Svix. Setting only one keeps the built-in driver active. In Svix mode Callboard does not read local webhook endpoints and does no signing or fan-out. It makes one authenticated handoff to:
 
 ```text
