@@ -29,7 +29,7 @@
  * typechecked and BUILT clean and only failed in `vite dev`, as a full-screen
  * error overlay that ate the e2e run. Callers still import from one place.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 
 import type { DB } from "~/db/client.server";
 import { aiTriage, reviewRounds } from "~/db/schema";
@@ -37,6 +37,7 @@ import { appEnv } from "~/lib/env.server";
 import {
   AI_TRIAGE_BULK_CAP,
   AI_TRIAGE_BULK_CONCURRENCY,
+  AI_TRIAGE_CLAIM_STALE_MS,
   AI_TRIAGE_MODEL,
   RUBRIC_CRITERIA_MAX,
   SYSTEM_PROMPT,
@@ -53,18 +54,22 @@ export {
   AI_TRIAGE_BULK_BATCH,
   AI_TRIAGE_BULK_CAP,
   AI_TRIAGE_BULK_CONCURRENCY,
+  AI_TRIAGE_BULK_WINDOW_MS,
+  AI_TRIAGE_CLAIM_STALE_MS,
   AI_TRIAGE_MODEL,
   RUBRIC_CRITERIA_MAX,
   AI_TRIAGE_RECOMMENDATIONS,
   AI_TRIAGE_STATUSES,
   SYSTEM_PROMPT,
   buildTriagePrompt,
+  boundedTriageCount,
   parseTriageText,
   planTriageBatch,
   textFromAiResponse,
   triageBeginMarker,
   triageEndMarker,
   triageSentinel,
+  triageWindowCap,
   type AiTriageRecommendation,
   type AiTriageStatus,
   type BulkBatchPlan,
@@ -226,6 +231,105 @@ export interface BulkTriageTarget {
   submission: TriageSubmission;
 }
 
+/**
+ * Reserve targets before any billable model call.
+ *
+ * The existing `ai_triage_session_idx` unique index already is the one-row-per-
+ * submission lock. A third `status = "claimed"` value reuses that lock plus
+ * `updatedAt` as its staleness clock; SQLite stores `status` as unconstrained
+ * text, so this is a TypeScript widening rather than a SQL schema change. A
+ * separate claims table would duplicate the same uniqueness invariant and
+ * retain history this workflow does not need.
+ *
+ * Each candidate first attempts INSERT ... ON CONFLICT DO NOTHING ...
+ * RETURNING. SQLite returns a row only for the caller that actually inserted
+ * it. A conflict then gets one magic-link-style conditional UPDATE: only a
+ * still-claimed row older than the stale horizon can be reclaimed, and an empty
+ * RETURNING set means this caller lost cleanly. Statements are intentionally
+ * sequential—D1 has no interactive transactions—and the invariant lives in
+ * each statement's WHERE/unique constraint rather than in an earlier read.
+ * Stop at `take`: reserving work this request will not score would strand it.
+ */
+export async function claimTriageTargets(
+  db: DB,
+  args: {
+    eventId: string;
+    requestedById: string | null;
+    candidates: readonly BulkTriageTarget[];
+    take: number;
+    now: Date;
+  },
+): Promise<BulkTriageTarget[]> {
+  const requestedTake = Math.floor(Number(args.take));
+  const take = Number.isFinite(requestedTake) ? Math.max(0, requestedTake) : 0;
+  const staleBefore = new Date(args.now.getTime() - AI_TRIAGE_CLAIM_STALE_MS);
+  const claimed: BulkTriageTarget[] = [];
+
+  for (const candidate of args.candidates) {
+    if (claimed.length >= take) break;
+
+    const inserted = await db
+      .insert(aiTriage)
+      .values({
+        id: crypto.randomUUID(),
+        eventId: args.eventId,
+        sessionId: candidate.sessionId,
+        score: null,
+        recommendation: null,
+        reasoning: null,
+        model: AI_TRIAGE_MODEL,
+        status: "claimed",
+        requestedById: args.requestedById,
+        createdAt: args.now,
+        updatedAt: args.now,
+      })
+      .onConflictDoNothing({ target: aiTriage.sessionId })
+      .returning({ sessionId: aiTriage.sessionId });
+
+    if (inserted.length > 0) {
+      claimed.push(candidate);
+      continue;
+    }
+
+    const reclaimed = await db
+      .update(aiTriage)
+      .set({
+        score: null,
+        recommendation: null,
+        reasoning: null,
+        model: AI_TRIAGE_MODEL,
+        status: "claimed",
+        requestedById: args.requestedById,
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(aiTriage.eventId, args.eventId),
+          eq(aiTriage.sessionId, candidate.sessionId),
+          eq(aiTriage.status, "claimed"),
+          lt(aiTriage.updatedAt, staleBefore),
+        ),
+      )
+      .returning({ sessionId: aiTriage.sessionId });
+
+    if (reclaimed.length > 0) claimed.push(candidate);
+  }
+
+  return claimed;
+}
+
+/** Count spent or in-flight rows in a stable `createdAt` rolling window. */
+export async function countRecentTriage(
+  db: DB,
+  args: { eventId: string; since: Date },
+): Promise<number> {
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(aiTriage)
+    .where(and(eq(aiTriage.eventId, args.eventId), gte(aiTriage.createdAt, args.since)));
+  return Number(rows[0]?.count ?? 0);
+}
+
 export interface BulkTriageResult {
   ok: number;
   failed: number;
@@ -330,7 +434,9 @@ export async function loadTriage(
     .limit(1);
 
   const row = rows[0];
-  if (!row) return null;
+  // A reservation is not an opinion. Until it resolves, the detail card has
+  // nothing advisory to show and must not render nullable claim fields as one.
+  if (!row || row.status === "claimed") return null;
   return {
     score: row.score,
     recommendation: row.recommendation,

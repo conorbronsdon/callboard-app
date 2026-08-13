@@ -14,7 +14,7 @@
  * what makes the zero-state/seeded-state render tests real instead of shape
  * assertions on loader data.
  */
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { useEffect, useRef } from "react";
 import { redirect, useFetcher } from "react-router";
 
@@ -63,8 +63,16 @@ import {
  * full-screen "Server-only module referenced by client" overlay. The pure
  * sibling exists so a component can read the constant.
  */
-import { AI_TRIAGE_BULK_BATCH, AI_TRIAGE_BULK_CAP } from "~/lib/review/ai-triage";
 import {
+  AI_TRIAGE_BULK_BATCH,
+  AI_TRIAGE_BULK_CAP,
+  AI_TRIAGE_BULK_WINDOW_MS,
+  AI_TRIAGE_CLAIM_STALE_MS,
+  triageWindowCap,
+} from "~/lib/review/ai-triage";
+import {
+  claimTriageTargets,
+  countRecentTriage,
   currentRoundCriteria,
   planTriageBatch,
   triageBinding,
@@ -504,7 +512,8 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   /*
-   * Bulk AI triage over PENDING abstracts that do not have an opinion yet.
+   * Bulk AI triage over PENDING abstracts without an opinion, plus stale
+   * reservations left by a crashed request.
    *
    * Below `requireAdmin` at the top of this action, so a speaker POST is a 403
    * and an anonymous one a login redirect — a bulk inference button is exactly
@@ -521,6 +530,13 @@ export async function action({ request }: Route.ActionArgs) {
         error: "AI triage unavailable in this deployment — no Workers AI binding is configured.",
       };
     }
+
+    const now = new Date();
+    const staleBefore = new Date(now.getTime() - AI_TRIAGE_CLAIM_STALE_MS);
+    const liveWindowCount = await countRecentTriage(db, {
+      eventId: event.id,
+      since: new Date(now.getTime() - AI_TRIAGE_BULK_WINDOW_MS),
+    });
 
     const pending = await db
       .select({
@@ -541,9 +557,13 @@ export async function action({ request }: Route.ActionArgs) {
           eq(sessions.isAbstract, true),
           eq(sessions.status, "pending"),
           isNull(sessions.deletedAt),
-          // Already-triaged rows are skipped, so pressing the button twice is
-          // not a second inference bill for the same abstracts.
-          isNull(aiTriage.id),
+          // Completed opinions and fresh in-flight claims are excluded. A
+          // crashed request becomes selectable only after the stale horizon;
+          // the conditional claim must still win before any model call.
+          or(
+            isNull(aiTriage.id),
+            and(eq(aiTriage.status, "claimed"), lt(aiTriage.updatedAt, staleBefore)),
+          ),
         ),
       )
       .orderBy(desc(sessions.createdAt))
@@ -552,29 +572,22 @@ export async function action({ request }: Route.ActionArgs) {
     /*
      * ONE BATCH PER REQUEST.
      *
-     * The query above is unchanged — same cap, same "skip anything already
-     * triaged" join — so a run is still at most `AI_TRIAGE_BULK_CAP` abstracts
-     * and pressing the button twice is still not a second inference bill. What
-     * changed is that a request no longer runs the whole cap before answering:
-     * it scores `plan.take` of them and reports `{ done, total }`, and the
-     * client (or a human pressing Continue) comes back for the next batch.
+     * `AI_TRIAGE_BULK_CAP` bounds claims created for this event in the rolling
+     * hour, not one press. The live count includes earlier requests in THIS
+     * run, so `triageWindowCap` subtracts the sanitised `done` echo before the
+     * planner sees its dynamic ceiling. An honest 4/8/12 run stays stable while
+     * another press's rows tighten its remaining budget.
      *
      * `done`, `total`, `scored` and `failed` come off a form, so they are
-     * untrusted. `planTriageBatch` floors and clamps all of them and re-bounds
-     * the run by what is actually still pending.
+     * untrusted. The window calculation and `planTriageBatch` share the same
+     * flooring/clamping path for `done`; the planner also re-bounds the run by
+     * what is actually still pending.
      *
      * TERMINATION, precisely. For a client that echoes the response back — the
      * island below, and the Continue button — `done` strictly advances until
-     * the action redirects. For ANY client, including one that replays a stale
-     * cursor forever, each request either scores at least one row (which the
-     * `isNull(aiTriage.id)` join then permanently excludes) or redirects, so
-     * the un-triaged set strictly shrinks and the loop is finite.
-     *
-     * A client that resets its cursor is not an escalation, it is the button
-     * being pressed again: on `main` one press scored up to twelve, and the
-     * cap has always bounded a REQUEST rather than a person. A rolled-back
-     * cursor now buys four inference calls where a second press used to buy
-     * twelve.
+     * the action redirects. For ANY client, each request either successfully
+     * reserves and scores at least one row, or redirects. Losing a reservation
+     * race is the same safe short-batch termination as naturally running out.
      */
     const runningScored = boundedCount(formData.get("scored"));
     const runningFailed = boundedCount(formData.get("failed"));
@@ -582,6 +595,7 @@ export async function action({ request }: Route.ActionArgs) {
       done: formData.get("done"),
       total: formData.get("total"),
       pending: pending.length,
+      cap: triageWindowCap({ done: formData.get("done"), liveWindowCount }),
     });
 
     // Clamped again on the way out: these two ride in the URL and become the
@@ -598,6 +612,23 @@ export async function action({ request }: Route.ActionArgs) {
 
     if (plan.complete) return finish(runningScored, runningFailed);
 
+    const candidates = pending.map((row) => ({
+      sessionId: row.id,
+      submission: {
+        title: row.title,
+        abstract: abstractTextOf(row.answers, row.description),
+        trackName: row.trackName,
+        formatName: row.formatName,
+      },
+    }));
+    const claimed = await claimTriageTargets(db, {
+      eventId: event.id,
+      requestedById: admin.id,
+      candidates,
+      take: plan.take,
+      now,
+    });
+
     const result = await triageMany(db, {
       eventId: event.id,
       requestedById: admin.id,
@@ -605,15 +636,9 @@ export async function action({ request }: Route.ActionArgs) {
       // The committee's own criterion names, so the rationale comes back in
       // their vocabulary. Empty for an event with no round: prompt unchanged.
       criteria: await currentRoundCriteria(db, event.id),
-      targets: pending.slice(0, plan.take).map((row) => ({
-        sessionId: row.id,
-        submission: {
-          title: row.title,
-          abstract: abstractTextOf(row.answers, row.description),
-          trackName: row.trackName,
-          formatName: row.formatName,
-        },
-      })),
+      // Only the subset whose INSERT/conditional UPDATE returned may reach the
+      // model. A selector that lost the claim cannot incur inference spend.
+      targets: claimed,
     });
 
     const processed = result.ok + result.failed;

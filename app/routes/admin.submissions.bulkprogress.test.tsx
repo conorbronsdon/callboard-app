@@ -18,10 +18,16 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { aiTriage, reviewRounds, reviews, sessions } from "~/db/schema";
-import { AI_TRIAGE_BULK_BATCH, AI_TRIAGE_BULK_CAP } from "~/lib/review/ai-triage.server";
+import {
+  AI_TRIAGE_BULK_BATCH,
+  AI_TRIAGE_BULK_CAP,
+  AI_TRIAGE_BULK_WINDOW_MS,
+  AI_TRIAGE_CLAIM_STALE_MS,
+  AI_TRIAGE_MODEL,
+} from "~/lib/review/ai-triage.server";
 import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
@@ -163,18 +169,33 @@ describe("bulk triage progress", () => {
     expect((await ctx.db.select().from(aiTriage)).length).toBe(4);
   });
 
-  it("MUST NOT FIRE: the run stops at the cap however many are pending", async () => {
+  it("MUST NOT FIRE: three sequential fresh presses cannot exceed the one-hour cap", async () => {
     await seedPending(20);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-12T12:00:00.000Z"));
+    try {
+      const first = await runToCompletion();
+      const second = await runToCompletion();
+      const third = await runToCompletion();
 
-    const { rounds, final } = await runToCompletion();
+      expect(first.rounds.map((round) => round.done)).toEqual([4, 8]);
+      expect(first.final.headers.get("location")).toContain(`ai=${AI_TRIAGE_BULK_CAP}`);
+      expect(second.rounds).toEqual([]);
+      expect(third.rounds).toEqual([]);
+      expect(calls.length).toBe(AI_TRIAGE_BULK_CAP);
+      expect((await ctx.db.select().from(aiTriage)).length).toBe(AI_TRIAGE_BULK_CAP);
 
-    expect(rounds.map((round) => round.done)).toEqual([4, 8]);
-    expect(final.headers.get("location")).toContain(`ai=${AI_TRIAGE_BULK_CAP}`);
-    expect(calls.length).toBe(AI_TRIAGE_BULK_CAP);
-    expect((await ctx.db.select().from(aiTriage)).length).toBe(AI_TRIAGE_BULK_CAP);
-    // Eight are deliberately left un-triaged: pressing the button again picks
-    // them up, and one press is still one bounded, billable run. All twenty
-    // rows are still pending, because triage moves no status.
+      // The intended semantic change: unlike the old per-press cap, two more
+      // fresh presses cannot buy the eight remaining calls inside this hour.
+      vi.setSystemTime(new Date(Date.now() + AI_TRIAGE_BULK_WINDOW_MS + 1));
+      await runToCompletion();
+      expect(calls.length).toBe(20);
+      expect((await ctx.db.select().from(aiTriage)).length).toBe(20);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Triage remains advisory: all twenty session statuses are still pending.
     const stillPending = await ctx.db.select().from(sessions).where(eq(sessions.status, "pending"));
     expect(stillPending.length).toBe(20);
   });
@@ -210,6 +231,8 @@ describe("bulk triage progress", () => {
       fields = { done: String(triage.done), total: "999", scored: "0", failed: "0" };
     }
 
+    // Only `total` is dishonest here; the client still echoes `done`, so this
+    // run subtracts its own rows and the legitimate total remains stable.
     expect(rounds.every((round) => round.total === AI_TRIAGE_BULK_CAP)).toBe(true);
     expect(calls.length).toBe(AI_TRIAGE_BULK_CAP);
   });
@@ -235,14 +258,71 @@ describe("bulk triage progress", () => {
     }
 
     /*
-     * Twenty rows at four a request is five requests, not six: the last one
-     * scores its batch AND redirects, because with four rows left the planner
-     * sets the run's total to four and `done` reaches it in the same request.
-     * Every call scored a DIFFERENT row.
+     * Intended window-cap change: the replayed `done=0` cannot subtract this
+     * run's prior rows back out, so the live window tightens 12 -> 8 -> 4 and
+     * the third request redirects. Every call still scored a DIFFERENT row.
      */
-    expect(requests).toBe(5);
-    expect(calls.length).toBe(20);
-    expect((await ctx.db.select().from(aiTriage)).length).toBe(20);
+    expect(requests).toBe(3);
+    expect(calls.length).toBe(AI_TRIAGE_BULK_CAP);
+    expect((await ctx.db.select().from(aiTriage)).length).toBe(AI_TRIAGE_BULK_CAP);
+  });
+
+  it("MUST FIRE: the bulk action reclaims and completes a stale claim", async () => {
+    await seedPending(1);
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      const [target] = await ctx.db.select().from(sessions).where(eq(sessions.status, "pending"));
+      await ctx.db.insert(aiTriage).values({
+        eventId: fixture.eventId,
+        sessionId: target.id,
+        requestedById: fixture.adminId,
+        model: AI_TRIAGE_MODEL,
+        status: "claimed",
+        createdAt: new Date(now.getTime() - AI_TRIAGE_CLAIM_STALE_MS - 1),
+        updatedAt: new Date(now.getTime() - AI_TRIAGE_CLAIM_STALE_MS - 1),
+      });
+
+      const result = await post({});
+      const [row] = await ctx.db.select().from(aiTriage);
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).headers.get("location")).toContain("ai=1");
+      expect(calls).toHaveLength(1);
+      expect(row.status).toBe("ok");
+      expect(row.score).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("MUST NOT FIRE: the bulk action does not reclaim or score a fresh claim", async () => {
+    await seedPending(1);
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      const [target] = await ctx.db.select().from(sessions).where(eq(sessions.status, "pending"));
+      await ctx.db.insert(aiTriage).values({
+        eventId: fixture.eventId,
+        sessionId: target.id,
+        requestedById: fixture.adminId,
+        model: AI_TRIAGE_MODEL,
+        status: "claimed",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await post({});
+      const [row] = await ctx.db.select().from(aiTriage);
+
+      expect(result).toBeInstanceOf(Response);
+      expect(calls).toHaveLength(0);
+      expect(row.status).toBe("claimed");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("MUST NOT FIRE: bulk triage still writes no review and moves no status", async () => {

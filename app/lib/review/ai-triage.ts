@@ -20,7 +20,7 @@
  * The schema keeps its "enums are exported const tuples" property; it just is
  * not the file the tuple is written in.
  */
-export const AI_TRIAGE_STATUSES = ["ok", "failed"] as const;
+export const AI_TRIAGE_STATUSES = ["ok", "failed", "claimed"] as const;
 export type AiTriageStatus = (typeof AI_TRIAGE_STATUSES)[number];
 
 export const AI_TRIAGE_RECOMMENDATIONS = ["accept", "maybe", "reject"] as const;
@@ -33,8 +33,23 @@ export type AiTriageRecommendation = (typeof AI_TRIAGE_RECOMMENDATIONS)[number];
  */
 export const AI_TRIAGE_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-/** Bulk runs never exceed this many submissions in one POST. */
+/** Bulk inference spend never exceeds this many rows per event/window. */
 export const AI_TRIAGE_BULK_CAP = 12;
+
+/** The spend cap counts claims created inside this rolling window. */
+export const AI_TRIAGE_BULK_WINDOW_MS = 60 * 60 * 1_000;
+
+/**
+ * A claim may be retried after five minutes.
+ *
+ * One four-call batch takes about seven seconds in the deployed demo, so five
+ * minutes leaves ample room for a slow provider while keeping a crashed press
+ * from wedging an abstract for long. Cloudflare ends Worker requests well
+ * before this horizon; an original claimant therefore cannot survive long
+ * enough to overwrite a later reclaimer, and a per-claim ownership token would
+ * add state without closing a reachable race.
+ */
+export const AI_TRIAGE_CLAIM_STALE_MS = 5 * 60 * 1_000;
 
 /** ...and never more than this many in flight, so we do not trip rate limits. */
 export const AI_TRIAGE_BULK_CONCURRENCY = 3;
@@ -51,7 +66,7 @@ export const AI_TRIAGE_BULK_CONCURRENCY = 3;
 export const AI_TRIAGE_BULK_BATCH = 4;
 
 export interface BulkBatchPlan {
-  /** The size of the whole run, fixed on the first request and clamped to the cap. */
+  /** Whole-run ceiling; initiated on request one and allowed to tighten, never grow. */
   total: number;
   /** How many are already scored, per the client's echo, sanitised. */
   done: number;
@@ -64,6 +79,29 @@ export interface BulkBatchPlan {
 function wholeNumber(value: unknown, fallback: number): number {
   const parsed = Math.floor(Number(value));
   return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+}
+
+/** The shared sanitiser for every client-echoed bulk progress count. */
+export function boundedTriageCount(value: unknown): number {
+  return Math.min(wholeNumber(value, 0), AI_TRIAGE_BULK_CAP);
+}
+
+/**
+ * How much of the rolling event budget belongs to this run.
+ *
+ * `liveWindowCount` includes rows this same run claimed in earlier requests.
+ * Subtracting the sanitised `done` contribution prevents a twelve-row run from
+ * eroding itself to eight after its first batch. Rows added by another run stay
+ * in `otherActivity` and tighten this run's ceiling immediately.
+ */
+export function triageWindowCap(args: {
+  done: unknown;
+  liveWindowCount: unknown;
+}): number {
+  const done = boundedTriageCount(args.done);
+  const liveWindowCount = wholeNumber(args.liveWindowCount, 0);
+  const otherActivity = Math.max(0, liveWindowCount - done);
+  return Math.max(0, AI_TRIAGE_BULK_CAP - otherActivity);
 }
 
 /**
@@ -83,10 +121,13 @@ export function planTriageBatch(args: {
   total: unknown;
   pending: number;
   batchSize?: number;
+  /** Dynamic whole-run ceiling after the rolling-window count. */
+  cap?: unknown;
 }): BulkBatchPlan {
-  const cap = AI_TRIAGE_BULK_CAP;
-  const done = Math.min(wholeNumber(args.done, 0), cap);
-  const pending = Math.min(wholeNumber(args.pending, 0), cap);
+  const hardCap = AI_TRIAGE_BULK_CAP;
+  const cap = Math.min(wholeNumber(args.cap, hardCap), hardCap);
+  const done = boundedTriageCount(args.done);
+  const pending = Math.min(wholeNumber(args.pending, 0), hardCap);
   /*
    * ABSENT means "first request, you decide the total" — and absent has to be
    * tested before Number(), because `Number(null)` is 0, which is a perfectly
@@ -98,7 +139,9 @@ export function planTriageBatch(args: {
     args.total === "" ||
     !Number.isFinite(Number(args.total));
   const claimed = absent ? null : wholeNumber(args.total, 0);
-  const ceiling = Math.min(done + pending, cap);
+  // A tightening window may fall below work already completed by this run.
+  // Preserve honest progress while ensuring it cannot claim another row.
+  const ceiling = Math.min(done + pending, Math.max(done, cap), hardCap);
   const total = claimed === null ? ceiling : Math.min(claimed, ceiling);
 
   const batchSize = Math.max(1, wholeNumber(args.batchSize, AI_TRIAGE_BULK_BATCH) || AI_TRIAGE_BULK_BATCH);

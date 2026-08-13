@@ -435,8 +435,7 @@ conclusions they informed are recorded in [DECISIONS.md](DECISIONS.md).
 
 Callboard is built by [Conor Bronsdon](https://conorbronsdon.com/?utm_source=github&utm_medium=referral&utm_campaign=repo-readme&utm_content=callboard-app) —
 host of the [Chain of Thought podcast](https://chainofthought.show/?utm_source=github&utm_medium=referral&utm_campaign=repo-readme&utm_content=callboard-app),
-angel investor in AI infrastructure and developer tools, and previously
-Technical Ecosystem Lead at Modular. Say hi on
+and angel investor in AI infrastructure and developer tools. Say hi on
 [X](https://x.com/ConorBronsdon) or
 [LinkedIn](https://www.linkedin.com/in/conorbronsdon/).
 

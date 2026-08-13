@@ -1,12 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 
 import { aiTriage, reviewRounds, reviews, sessions } from "~/db/schema";
 import {
   AI_TRIAGE_BULK_BATCH,
   AI_TRIAGE_BULK_CAP,
+  AI_TRIAGE_BULK_WINDOW_MS,
+  AI_TRIAGE_CLAIM_STALE_MS,
   AI_TRIAGE_MODEL,
   SYSTEM_PROMPT,
   buildTriagePrompt,
+  claimTriageTargets,
+  countRecentTriage,
   currentRoundCriteria,
   dismissTriage,
   loadTriage,
@@ -18,6 +23,7 @@ import {
   triageMany,
   triageSentinel,
   triageSubmission,
+  triageWindowCap,
   type TriageAiBinding,
   type TriageSubmission,
 } from "~/lib/review/ai-triage.server";
@@ -610,6 +616,186 @@ describe("AI triage persistence and bulk execution", () => {
     expect(result).toEqual({ ok: 0, failed: 0, unavailable: true });
     expect(rows.length).toBe(0);
   });
+
+  it("MUST FIRE: an inserted claim is completed in place and stays advisory-only", async () => {
+    const target = { sessionId: fixture.abstractIds[0], submission };
+    const reviewsBefore = await ctx.db.select().from(reviews);
+    const statusesBefore = (await ctx.db.select().from(sessions)).map((row) => row.status);
+    const claimed = await claimTriageTargets(ctx.db, {
+      eventId: fixture.eventId,
+      requestedById: fixture.adminId,
+      candidates: [target],
+      take: 1,
+      now: new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(claimed).toEqual([target]);
+    expect((await ctx.db.select().from(aiTriage))[0].status).toBe("claimed");
+
+    const ai = fakeAi({
+      response: '{"score":4,"recommendation":"accept","reasoning":"Claim completed once."}',
+    });
+    const result = await triageMany(ctx.db, {
+      eventId: fixture.eventId,
+      requestedById: fixture.adminId,
+      targets: claimed,
+      ai,
+    });
+    const rows = await ctx.db.select().from(aiTriage);
+
+    expect(result).toEqual({ ok: 1, failed: 0, unavailable: false });
+    expect(ai.calls).toHaveLength(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("ok");
+    expect(rows[0].reasoning).toBe("Claim completed once.");
+    expect(await ctx.db.select().from(reviews)).toEqual(reviewsBefore);
+    expect((await ctx.db.select().from(sessions)).map((row) => row.status)).toEqual(statusesBefore);
+  });
+
+  it("MUST NOT FIRE: two interleaved claimers cannot score the same submission twice", async () => {
+    const target = { sessionId: fixture.abstractIds[0], submission };
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    const first = await claimTriageTargets(ctx.db, {
+      eventId: fixture.eventId,
+      requestedById: fixture.adminId,
+      candidates: [target],
+      take: 1,
+      now,
+    });
+    // This is the interleave: selector two tries before selector one has called the model.
+    const second = await claimTriageTargets(ctx.db, {
+      eventId: fixture.eventId,
+      requestedById: fixture.adminId,
+      candidates: [target],
+      take: 1,
+      now,
+    });
+
+    const firstAi = fakeAi({
+      response: '{"score":4,"recommendation":"accept","reasoning":"Only opinion."}',
+    });
+    const secondAi = fakeAi({
+      response: '{"score":1,"recommendation":"reject","reasoning":"Must never run."}',
+    });
+    await triageMany(ctx.db, {
+      eventId: fixture.eventId,
+      requestedById: fixture.adminId,
+      targets: first,
+      ai: firstAi,
+    });
+    await triageMany(ctx.db, {
+      eventId: fixture.eventId,
+      requestedById: fixture.adminId,
+      targets: second,
+      ai: secondAi,
+    });
+
+    const rows = await ctx.db.select().from(aiTriage);
+    expect(first).toEqual([target]);
+    expect(second).toEqual([]);
+    expect(firstAi.calls).toHaveLength(1);
+    expect(secondAi.calls).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("ok");
+    expect(rows[0].reasoning).toBe("Only opinion.");
+  });
+
+  it("MUST NOT FIRE: claiming stops at take and leaves later candidates unreserved", async () => {
+    const candidates = fixture.abstractIds.slice(0, 3).map((sessionId) => ({
+      sessionId,
+      submission,
+    }));
+
+    const claimed = await claimTriageTargets(ctx.db, {
+      eventId: fixture.eventId,
+      requestedById: fixture.adminId,
+      candidates,
+      take: 1,
+      now: new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(claimed).toEqual([candidates[0]]);
+    const rows = await ctx.db.select().from(aiTriage);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sessionId).toBe(candidates[0].sessionId);
+  });
+
+  it("MUST FIRE / MUST NOT FIRE: only stale claimed rows can be reclaimed", async () => {
+    const stale = { sessionId: fixture.abstractIds[0], submission };
+    const fresh = { sessionId: fixture.abstractIds[1], submission };
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    await ctx.db.insert(aiTriage).values([
+      {
+        eventId: fixture.eventId,
+        sessionId: stale.sessionId,
+        requestedById: fixture.adminId,
+        model: AI_TRIAGE_MODEL,
+        status: "claimed",
+        createdAt: new Date(now.getTime() - AI_TRIAGE_CLAIM_STALE_MS - 1),
+        updatedAt: new Date(now.getTime() - AI_TRIAGE_CLAIM_STALE_MS - 1),
+      },
+      {
+        eventId: fixture.eventId,
+        sessionId: fresh.sessionId,
+        requestedById: fixture.adminId,
+        model: AI_TRIAGE_MODEL,
+        status: "claimed",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const claimed = await claimTriageTargets(ctx.db, {
+      eventId: fixture.eventId,
+      requestedById: fixture.adminId,
+      candidates: [fresh, stale],
+      take: 2,
+      now,
+    });
+
+    expect(claimed).toEqual([stale]);
+    const [staleAfter] = await ctx.db
+      .select()
+      .from(aiTriage)
+      .where(eq(aiTriage.sessionId, stale.sessionId));
+    expect(staleAfter.createdAt).toEqual(
+      new Date(now.getTime() - AI_TRIAGE_CLAIM_STALE_MS - 1),
+    );
+  });
+
+  it("MUST FIRE / MUST NOT FIRE: the event window counts every recent status by createdAt", async () => {
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    const recent = fixture.abstractIds.slice(0, 3);
+    const old = fixture.abstractIds[3];
+    await ctx.db.insert(aiTriage).values([
+      ...(["ok", "failed", "claimed"] as const).map((status, index) => ({
+        eventId: fixture.eventId,
+        sessionId: recent[index],
+        requestedById: fixture.adminId,
+        model: AI_TRIAGE_MODEL,
+        status,
+        createdAt: new Date(now.getTime() - index),
+        updatedAt: new Date(now.getTime() - index),
+      })),
+      {
+        eventId: fixture.eventId,
+        sessionId: old,
+        requestedById: fixture.adminId,
+        model: AI_TRIAGE_MODEL,
+        status: "claimed" as const,
+        // MUST NOT FIRE: a later update cannot drag old spend into the window.
+        createdAt: new Date(now.getTime() - AI_TRIAGE_BULK_WINDOW_MS - 1),
+        updatedAt: now,
+      },
+    ]);
+
+    expect(
+      await countRecentTriage(ctx.db, {
+        eventId: fixture.eventId,
+        since: new Date(now.getTime() - AI_TRIAGE_BULK_WINDOW_MS),
+      }),
+    ).toBe(3);
+  });
 });
 
 /* ─────────────────────────────────────── rubric-aware rationale (names only) ──
@@ -814,6 +1000,33 @@ describe("triage batch planning", () => {
       take: 0,
       complete: true,
     });
+  });
+
+  it("MUST FIRE: window-cap arithmetic subtracts this run's own completed rows", () => {
+    expect(triageWindowCap({ done: 0, liveWindowCount: 0 })).toBe(12);
+    expect(triageWindowCap({ done: 4, liveWindowCount: 4 })).toBe(12);
+    expect(triageWindowCap({ done: 8, liveWindowCount: 8 })).toBe(12);
+
+    const secondRound = planTriageBatch({
+      done: 4,
+      total: 12,
+      pending: 8,
+      cap: triageWindowCap({ done: 4, liveWindowCount: 4 }),
+    });
+    expect(secondRound).toEqual({ total: 12, done: 4, take: 4, complete: false });
+  });
+
+  it("MUST NOT FIRE: other activity tightens the run without lowering completed progress", () => {
+    expect(triageWindowCap({ done: 4.9, liveWindowCount: 8 })).toBe(8);
+    expect(triageWindowCap({ done: 4, liveWindowCount: 99 })).toBe(0);
+    expect(
+      planTriageBatch({
+        done: 4,
+        total: 12,
+        pending: 8,
+        cap: triageWindowCap({ done: 4, liveWindowCount: 20 }),
+      }),
+    ).toEqual({ total: 4, done: 4, take: 0, complete: true });
   });
 });
 
