@@ -177,6 +177,8 @@ describe("admin dashboard readiness", () => {
     expect(html).toContain("Follow up with speakers");
     expect(html).toContain('href="/admin/reviews"');
     expect(html).toContain('href="/admin/agenda"');
+    expect(html).toContain('href="/admin/embeds?w=agenda"');
+    expect(html).toContain('href="/admin/embeds?w=speakers"');
   });
 
   it("renders useful waiting states when a configured event has no activity", async () => {
@@ -193,6 +195,8 @@ describe("admin dashboard readiness", () => {
     expect(html).toContain("No accepted speakers need onboarding yet");
     expect(html).toContain("No accepted sessions are ready to schedule yet");
     expect(html).toContain("No current blockers");
+    expect(html).not.toContain("w=agenda");
+    expect(html).not.toContain("w=speakers");
   });
 
   it("counts person-level onboarding work for accepted speakers, but not other speakers", async () => {

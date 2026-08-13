@@ -163,3 +163,40 @@ test("disabling a saved embed makes its live handle return 404", async ({ page }
   const response = await page.goto(liveUrl!);
   expect(response?.status()).toBe(404);
 });
+
+test("the Embeds page live preview really renders the widget it claims to preview", async ({
+  page,
+}) => {
+  await enterOrganizerWorkspace(page);
+  await page.goto("/admin/embeds?w=schedule");
+
+  const preview = page.frameLocator('[data-testid="embed-preview-schedule"]');
+  await expect(preview.getByText("Building LLM Infrastructure That Scales")).toBeVisible();
+  await expect(page.locator('[data-testid="embed-preview-speakers"]')).toHaveCount(0);
+});
+
+test("grab points at the dashboard, settings, and speakers pages jump straight to a rendered snippet", async ({
+  page,
+}) => {
+  await enterOrganizerWorkspace(page);
+
+  // Dashboard: the "Publish the agenda" and "Onboard speakers" readiness
+  // stages each carry a grab link straight to that widget's snippet.
+  await page.goto("/admin");
+  await page.getByRole("link", { name: "Embed the agenda" }).click();
+  await expect(page).toHaveURL(/\/admin\/embeds\?w=agenda$/);
+  await expect(page.getByTestId("embed-snippet-agenda")).toHaveValue(/<iframe src="/);
+
+  // Settings: the event-configuration screen links straight to the schedule
+  // and speaker-directory snippets.
+  await page.goto("/admin/settings");
+  await page.getByRole("link", { name: "Embed the schedule" }).click();
+  await expect(page).toHaveURL(/\/admin\/embeds\?w=schedule$/);
+  await expect(page.getByTestId("embed-snippet-schedule")).toHaveValue(/<iframe src="/);
+
+  // Speakers roster: the page header links to the speaker-directory snippet.
+  await page.goto("/admin/speakers");
+  await page.getByRole("link", { name: "Embed the speaker directory" }).click();
+  await expect(page).toHaveURL(/\/admin\/embeds\?w=speakers$/);
+  await expect(page.getByTestId("embed-snippet-speakers")).toHaveValue(/<iframe src="/);
+});

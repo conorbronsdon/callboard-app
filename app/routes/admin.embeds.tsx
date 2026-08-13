@@ -432,6 +432,20 @@ export default function AdminEmbeds({ loaderData, actionData }: Route.ComponentP
                 </div>
               ) : null}
 
+              {showSnippet && active ? (
+                <div className="mt-4">
+                  <p className="mb-1 text-sm font-medium">Live preview</p>
+                  <iframe
+                    data-testid={`embed-preview-${widget.id}`}
+                    src={embedUrl}
+                    title={`${event.name} — ${widget.label} preview`}
+                    loading="lazy"
+                    height="720"
+                    className="block w-full rounded-lg border border-gray-200 dark:border-gray-800"
+                  />
+                </div>
+              ) : null}
+
               <form method="post" className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
                 <input type="hidden" name="intent" value="save" />
                 <input type="hidden" name="widget" value={widget.id} />

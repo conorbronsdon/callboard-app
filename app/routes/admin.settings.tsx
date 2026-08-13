@@ -1,6 +1,7 @@
 import { and, eq, ne } from "drizzle-orm";
 import { Form } from "react-router";
 
+import { EmbedGrabCard } from "~/components/embed-grab";
 import { buttonClass } from "~/components/portal-ui";
 import { getDb } from "~/db/client.server";
 import { events } from "~/db/schema";
@@ -105,6 +106,8 @@ export default function AdminSettings({ loaderData, actionData }: Route.Componen
       {actionData?.error ? (
         <p className="text-sm text-red-600">{actionData.error}</p>
       ) : null}
+
+      <EmbedGrabCard />
 
       <div>
         <label htmlFor="name" className="mb-1 block text-sm font-medium">

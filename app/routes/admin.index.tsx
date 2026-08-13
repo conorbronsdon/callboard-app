@@ -1,6 +1,7 @@
 import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { Link } from "react-router";
 
+import { EmbedGrabLink } from "~/components/embed-grab";
 import { buttonClass } from "~/components/portal-ui";
 import { eyebrowClass, LaneStub } from "~/components/shell";
 import { chunkForBind, getDb } from "~/db/client.server";
@@ -437,10 +438,17 @@ export function ProgrammeReadinessPanel({ readiness }: { readiness: ProgrammeRea
                 </li>
               ))}
             </ul>
-            <div className="mt-auto pt-4">
+            <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
               <a href={stage.to} className={`min-h-11 ${buttonClass("secondary")}`}>
                 {stage.actionLabel}
               </a>
+              {stage.embedWidget ? (
+                <EmbedGrabLink widget={stage.embedWidget}>
+                  {stage.embedWidget === "agenda"
+                    ? "Embed the agenda"
+                    : "Embed the speaker directory"}
+                </EmbedGrabLink>
+              ) : null}
             </div>
           </li>
         ))}

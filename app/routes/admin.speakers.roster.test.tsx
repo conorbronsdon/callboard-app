@@ -568,3 +568,15 @@ describe("event isolation", () => {
     expect(eventB.speakers.map((row) => row.fullName)).not.toContain("Event A Only");
   });
 });
+
+describe("admin speakers embed grab", () => {
+  it("MUST FIRE for speakers and MUST NOT FIRE for other widget ids", async () => {
+    const html = render(await load());
+
+    expect(html).toContain('href="/admin/embeds?w=speakers"');
+    expect(html).toContain("Embed the speaker directory");
+    expect(html).not.toContain("w=schedule");
+    expect(html).not.toContain("w=agenda");
+    expect(html).not.toContain("w=gallery");
+  });
+});

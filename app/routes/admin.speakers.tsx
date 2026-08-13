@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 
+import { EmbedGrabLink } from "~/components/embed-grab";
 import { buttonClass } from "~/components/portal-ui";
 import { LaneStub, PageHeader } from "~/components/shell";
 import { chunkForBind, chunkedInsert, getDb, type DB } from "~/db/client.server";
@@ -487,6 +488,9 @@ export default function AdminSpeakers({ loaderData, actionData }: Route.Componen
       <PageHeader
         title="Speakers"
         description="Everyone attached to this event and their workflow status. Change a status inline, or invite a batch to the portal."
+        actions={
+          <EmbedGrabLink widget="speakers">Embed the speaker directory</EmbedGrabLink>
+        }
       />
 
       {/* Full-width row, not a header flex item: an open drawer's panel needs

@@ -98,11 +98,31 @@ describe("admin embeds loader and render", () => {
     expect(html).toContain("No saved embeds yet");
   });
 
-  it("renders a captured iframe snippet after Get Code", async () => {
+  it("MUST FIRE: renders a captured iframe snippet and the same live preview URL", async () => {
     const html = markup(await get("/admin/embeds?w=schedule&theme=dark"));
+    const embedUrl = `https://x.test/embed/${EVENT_SLUG}/schedule?theme=dark`;
+    const snippet = html.match(/data-testid="embed-snippet-schedule"[\s\S]*?<\/textarea>/)?.[0];
+
     expect(html).toContain('data-testid="embed-snippet-schedule"');
     expect(html).toContain("&lt;iframe src=");
-    expect(html).toContain("/embed/frontier-ai-summit-2026/schedule?theme=dark");
+    expect(html).toContain(`href="${embedUrl}"`);
+    expect(snippet).toContain(embedUrl);
+    expect(html).toContain(
+      `data-testid="embed-preview-schedule" src="${embedUrl}"`,
+    );
+  });
+
+  it("MUST NOT FIRE: renders no live preview until a widget is explicitly active", async () => {
+    expect(markup(await get())).not.toContain('data-testid="embed-preview-');
+  });
+
+  it("MUST FIRE for speakers and MUST NOT FIRE for the schedule preview", async () => {
+    const html = markup(await get("/admin/embeds?w=speakers"));
+    const frame = html.match(/<iframe[^>]*data-testid="embed-preview-speakers"[^>]*>/)?.[0];
+
+    expect(frame).toContain(`/embed/${EVENT_SLUG}/speakers`);
+    expect(frame).not.toContain(`/embed/${EVENT_SLUG}/schedule`);
+    expect(html).not.toContain('data-testid="embed-preview-schedule"');
   });
 });
 

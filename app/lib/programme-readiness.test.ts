@@ -26,6 +26,36 @@ function stage(input: ProgrammeReadinessInput, id: "cfp" | "reviews" | "speakers
 }
 
 describe("programme readiness — must fire", () => {
+  it.each([
+    ["attention", { incompleteSpeakerProfiles: 1 }],
+    ["ready", { incompleteSpeakerProfiles: 0 }],
+  ])("exposes the speakers embed when accepted speakers are %s", (_state, overrides) => {
+    expect(
+      stage(
+        { ...READY, acceptedSpeakers: 1, outstandingSpeakerTasks: 0, ...overrides },
+        "speakers",
+      ).embedWidget,
+    ).toBe("speakers");
+  });
+
+  it.each([
+    ["attention", { unpublishedAcceptedSessions: 1 }],
+    ["ready", { unpublishedAcceptedSessions: 0 }],
+  ])("exposes the agenda embed when accepted sessions are %s", (_state, overrides) => {
+    expect(
+      stage(
+        {
+          ...READY,
+          acceptedSessions: 1,
+          unscheduledAcceptedSessions: 0,
+          agendaConflicts: 0,
+          ...overrides,
+        },
+        "agenda",
+      ).embedWidget,
+    ).toBe("agenda");
+  });
+
   it("calls out a missing CFP setup", () => {
     const cfp = stage({ ...READY, cfpForms: 0, openCfpForms: 0 }, "cfp");
     expect(cfp).toMatchObject({ status: "attention", actionLabel: "Set up the CFP" });
@@ -81,6 +111,26 @@ describe("programme readiness — must fire", () => {
 });
 
 describe("programme readiness — must NOT fire", () => {
+  it("does not expose empty speaker or agenda widgets", () => {
+    expect(stage({ ...READY, acceptedSpeakers: 0 }, "speakers").embedWidget).toBeNull();
+    expect(stage({ ...READY, acceptedSessions: 0 }, "agenda").embedWidget).toBeNull();
+  });
+
+  it.each([
+    ["CFP missing", { cfpForms: 0, openCfpForms: 0 }],
+    ["CFP closed", { cfpForms: 1, openCfpForms: 0 }],
+    ["CFP open", { cfpForms: 1, openCfpForms: 1 }],
+    ["reviews waiting", { abstracts: 0 }],
+    ["reviews need assignment", { abstracts: 1, pendingAbstracts: 1, unassignedPendingAbstracts: 1 }],
+    ["reviews need decisions", { abstracts: 1, pendingAbstracts: 1, unassignedPendingAbstracts: 0 }],
+    ["reviews have a queue", { abstracts: 1, queuedDecisions: 1 }],
+    ["reviews complete", { abstracts: 1, pendingAbstracts: 0, queuedDecisions: 0 }],
+  ])("never exposes a CFP or review embed in the %s state", (_state, overrides) => {
+    const result = deriveProgrammeReadiness({ ...READY, ...overrides });
+    expect(result.stages.find((entry) => entry.id === "cfp")?.embedWidget).toBeNull();
+    expect(result.stages.find((entry) => entry.id === "reviews")?.embedWidget).toBeNull();
+  });
+
   it("treats a saved but non-open CFP as a neutral lifecycle state", () => {
     const result = deriveProgrammeReadiness({ ...READY, openCfpForms: 0 });
     const cfp = result.stages.find((entry) => entry.id === "cfp")!;

@@ -1,3 +1,5 @@
+import type { EmbedWidgetId } from "~/lib/embeds";
+
 export type ReadinessStatus = "ready" | "attention" | "waiting" | "closed";
 
 export interface ReadinessStage {
@@ -9,6 +11,7 @@ export interface ReadinessStage {
   details: string[];
   to: string;
   actionLabel: string;
+  embedWidget: EmbedWidgetId | null;
 }
 
 export interface ProgrammeReadinessInput {
@@ -48,6 +51,7 @@ function cfpStage(input: ProgrammeReadinessInput): ReadinessStage {
       details: ["Create a form before sharing a submission link."],
       to: "/admin/forms",
       actionLabel: "Set up the CFP",
+      embedWidget: null,
     };
   }
 
@@ -63,6 +67,7 @@ function cfpStage(input: ProgrammeReadinessInput): ReadinessStage {
       ],
       to: "/admin/forms",
       actionLabel: "Review forms",
+      embedWidget: null,
     };
   }
 
@@ -75,6 +80,7 @@ function cfpStage(input: ProgrammeReadinessInput): ReadinessStage {
     details: [`${plural(input.abstracts, "submission")} received so far.`],
     to: "/admin/forms?status=open",
     actionLabel: "Manage open forms",
+    embedWidget: null,
   };
 }
 
@@ -89,6 +95,7 @@ function reviewStage(input: ProgrammeReadinessInput): ReadinessStage {
       details: ["Review work will appear here after the first proposal."],
       to: "/admin/reviews",
       actionLabel: "Prepare reviews",
+      embedWidget: null,
     };
   }
 
@@ -113,6 +120,7 @@ function reviewStage(input: ProgrammeReadinessInput): ReadinessStage {
       details,
       to: input.unassignedPendingAbstracts > 0 ? "/admin/reviews" : "/admin/submissions?tab=pending",
       actionLabel: input.unassignedPendingAbstracts > 0 ? "Assign reviews" : "Finish decisions",
+      embedWidget: null,
     };
   }
 
@@ -125,6 +133,7 @@ function reviewStage(input: ProgrammeReadinessInput): ReadinessStage {
     details: [`${plural(input.abstracts, "submission")} processed.`],
     to: "/admin/submissions",
     actionLabel: "View submissions",
+    embedWidget: null,
   };
 }
 
@@ -139,6 +148,7 @@ function speakerStage(input: ProgrammeReadinessInput): ReadinessStage {
       details: ["Profiles and assigned tasks appear after a proposal is accepted."],
       to: "/admin/speakers",
       actionLabel: "View speakers",
+      embedWidget: null,
     };
   }
 
@@ -162,6 +172,7 @@ function speakerStage(input: ProgrammeReadinessInput): ReadinessStage {
       details,
       to: "/admin/speakers",
       actionLabel: "Follow up with speakers",
+      embedWidget: "speakers",
     };
   }
 
@@ -174,6 +185,7 @@ function speakerStage(input: ProgrammeReadinessInput): ReadinessStage {
     details: [`${plural(input.acceptedSpeakers, "accepted speaker")} ready for the programme.`],
     to: "/admin/speakers",
     actionLabel: "View speakers",
+    embedWidget: "speakers",
   };
 }
 
@@ -188,6 +200,7 @@ function agendaStage(input: ProgrammeReadinessInput): ReadinessStage {
       details: ["Accepted proposals become programme sessions automatically."],
       to: "/admin/agenda",
       actionLabel: "Open the agenda",
+      embedWidget: null,
     };
   }
 
@@ -214,6 +227,7 @@ function agendaStage(input: ProgrammeReadinessInput): ReadinessStage {
       details,
       to: input.agendaConflicts > 0 ? "/admin/agenda?view=conflicts" : "/admin/agenda",
       actionLabel: input.agendaConflicts > 0 ? "Resolve conflicts" : "Finish the agenda",
+      embedWidget: "agenda",
     };
   }
 
@@ -226,6 +240,7 @@ function agendaStage(input: ProgrammeReadinessInput): ReadinessStage {
     details: [`${plural(input.acceptedSessions, "accepted session")} on the public agenda.`],
     to: "/admin/agenda",
     actionLabel: "View the agenda",
+    embedWidget: "agenda",
   };
 }
 
