@@ -1,0 +1,70 @@
+@import "tailwindcss" source(".");
+
+/*
+ * Dark mode stays `prefers-color-scheme` by default — no page in the app carries
+ * these classes, so every existing surface is byte-identical. The two opt-in
+ * classes exist for the embed routes, where the HOST page's operator picks the
+ * theme via ?theme= and the visitor's OS preference is the wrong authority.
+ */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:not(.cb-theme-light, .cb-theme-light *)) { @slot; }
+  }
+  &:where(.cb-theme-dark, .cb-theme-dark *) { @slot; }
+}
+
+/*
+ * Inter v4.1, self-hosted. Subset to latin + punctuation + arrows from the
+ * official rsms/inter release (SIL OFL 1.1 — see public/fonts/inter-LICENSE.txt),
+ * 166KB for the whole 100–900 weight range.
+ *
+ * It is self-hosted rather than pulled from the Google Fonts CDN because a
+ * public page that renders in one SSR round trip should not then block on a
+ * third-party stylesheet plus a second origin's font file. Local means one
+ * request, no extra DNS/TLS, and no third party watching who reads a schedule.
+ */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-var.woff2") format("woff2");
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /*
+   * One elevation step, not a ladder. Cards lift off the gray page ground just
+   * enough to read as objects; anything heavier turns a dense organiser screen
+   * into a pile of floating boxes.
+   */
+  --shadow-card:
+    0 1px 2px 0 rgb(16 24 40 / 0.04), 0 1px 3px 0 rgb(16 24 40 / 0.07);
+
+  /* Small caps-y label above a heading or on a table header row. */
+  --text-eyebrow: 0.6875rem;
+  --text-eyebrow--line-height: 1rem;
+  --text-eyebrow--letter-spacing: 0.06em;
+}
+
+html,
+body {
+  @apply bg-gray-50 dark:bg-gray-950;
+
+  @media (prefers-color-scheme: dark) {
+    color-scheme: dark;
+  }
+}
+
+/*
+ * One focus ring for every interactive element, defined once. `:where()` keeps
+ * specificity at zero so a component can still opt out locally without
+ * `!important`.
+ */
+:where(a, button, summary, [role="button"]):focus-visible {
+  @apply outline-2 outline-offset-2 outline-blue-600 dark:outline-blue-400;
+}

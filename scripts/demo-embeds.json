@@ -1,0 +1,50 @@
+[
+  {
+    "id": "demo-embed-schedule",
+    "name": "Agents schedule",
+    "widget": "schedule",
+    "theme": "auto",
+    "track": "Agents",
+    "enabled": true,
+    "createdAt": 1786190400000,
+    "format": "iframe",
+    "density": "full",
+    "accent": "#2563eb"
+  },
+  {
+    "id": "demo-embed-agenda",
+    "name": "Compact calendar agenda",
+    "widget": "agenda",
+    "theme": "dark",
+    "track": null,
+    "enabled": true,
+    "createdAt": 1786190400001,
+    "format": "ical",
+    "density": "compact",
+    "accent": "#0f766e"
+  },
+  {
+    "id": "demo-embed-speakers",
+    "name": "Light speaker directory",
+    "widget": "speakers",
+    "theme": "light",
+    "track": null,
+    "enabled": true,
+    "createdAt": 1786190400002,
+    "format": "iframe",
+    "density": "full",
+    "accent": null
+  },
+  {
+    "id": "demo-embed-gallery",
+    "name": "Speaker gallery link",
+    "widget": "gallery",
+    "theme": "auto",
+    "track": null,
+    "enabled": true,
+    "createdAt": 1786190400003,
+    "format": "html",
+    "density": "full",
+    "accent": "#7c3aed"
+  }
+]

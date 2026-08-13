@@ -1,0 +1,65 @@
+/**
+ * DISPOSABLE JUDGE DEMO TEMPLATE — not used by the default deploy.
+ *
+ * Copy to wrangler.demo.jsonc (gitignored), provision dedicated resources, and
+ * replace every REPLACE_* value before using --config wrangler.demo.jsonc.
+ * Never point these bindings at production data or buckets.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "callboard-disposable-demo",
+  "compatibility_date": "2026-08-08",
+  "main": "./workers/app.ts",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "upload_source_maps": true,
+
+  /*
+   * The Airtable mirror is OFF here on purpose, and the default deploy is
+   * unchanged by its existence: with no credentials both `airtable-mirror` and
+   * `airtable-schema` report "not configured" and make zero network calls.
+   *
+   * To enable it on a disposable demo, add ONE var here and ONE secret out of
+   * band — never a token in this file, which is committed:
+   *   "AIRTABLE_BASE": "appXXXXXXXXXXXXXX"
+   *   wrangler secret put AIRTABLE_TOKEN --config wrangler.demo.jsonc
+   * The deploy guard in scripts/demo-deploy-lib.mjs checks named vars, not an
+   * exact set, and does not inspect secrets — so adding these does not trip it.
+   */
+  "vars": {
+    "APP_URL": "https://REPLACE_WITH_DISPOSABLE_DEMO_ORIGIN",
+    "DEPLOYMENT_PROFILE": "demo",
+    "DEMO_MODE": "1",
+    "DEMO_EXPIRES_AT": "REPLACE_WITH_ISO_EXPIRY_WITHIN_SEVEN_DAYS",
+    "MAIL_DRIVER": "console"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "callboard-disposable-demo-db",
+      "database_id": "REPLACE_WITH_DISPOSABLE_DEMO_D1_DATABASE_ID",
+      "migrations_dir": "app/db/migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "callboard-disposable-demo-files"
+    }
+  ],
+
+  /*
+   * Workers AI for the advisory triage card. Nothing to provision and no
+   * secret to add — the binding is the credential, billed to the account that
+   * runs the deploy. Drop this block and the demo still deploys: the triage
+   * card renders "AI triage unavailable in this deployment" and the seeded
+   * example rows still show.
+   */
+  "ai": { "binding": "AI" },
+
+  "triggers": {
+    "crons": ["0 15 * * *", "*/30 * * * *"]
+  }
+}

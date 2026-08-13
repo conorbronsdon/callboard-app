@@ -1,0 +1,28 @@
+# Copy to `.dev.vars` for local development. NEVER commit `.dev.vars`.
+# Deployed environments get these via `wrangler secret put <NAME>`.
+
+# HMAC key for the signed session cookie.
+SESSION_SECRET="dev-session-secret-change-me"
+
+# HMAC key for magic-link tokens.
+MAGIC_LINK_SECRET="dev-magic-link-secret-change-me"
+
+# HMAC key for opaque rate-limit identifiers. Use a different value in every deployment.
+RATE_LIMIT_SECRET="dev-rate-limit-secret-change-me"
+
+# Absolute origin used to build magic links. Leave blank to use the request origin.
+APP_URL=""
+
+# Local seeded development is an explicit disposable demo profile.
+# Production uses DEPLOYMENT_PROFILE="production" and DEMO_MODE="0".
+DEPLOYMENT_PROFILE="demo"
+DEMO_MODE="1"
+
+# WS5. While unset, emails are logged to the console by ConsoleMailer.
+# RESEND_API_KEY="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# RESEND_FROM="callboard <noreply@example.com>"
+
+# Pins the mailer to ConsoleMailer even when RESEND_API_KEY is set. The
+# Playwright web server sets this itself, so an e2e run cannot post real email;
+# set it here too if you keep a live key around and want dev runs kept local.
+# MAIL_DRIVER="console"

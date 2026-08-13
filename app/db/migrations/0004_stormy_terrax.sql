@@ -1,0 +1,1 @@
+ALTER TABLE `event_people` ADD `status` text DEFAULT 'invited' NOT NULL;

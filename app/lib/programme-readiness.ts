@@ -1,0 +1,244 @@
+export type ReadinessStatus = "ready" | "attention" | "waiting" | "closed";
+
+export interface ReadinessStage {
+  id: "cfp" | "reviews" | "speakers" | "agenda";
+  title: string;
+  status: ReadinessStatus;
+  statusLabel: string;
+  summary: string;
+  details: string[];
+  to: string;
+  actionLabel: string;
+}
+
+export interface ProgrammeReadinessInput {
+  cfpForms: number;
+  openCfpForms: number;
+  abstracts: number;
+  pendingAbstracts: number;
+  unassignedPendingAbstracts: number;
+  queuedDecisions: number;
+  acceptedSpeakers: number;
+  incompleteSpeakerProfiles: number;
+  outstandingSpeakerTasks: number;
+  acceptedSessions: number;
+  unscheduledAcceptedSessions: number;
+  unpublishedAcceptedSessions: number;
+  agendaConflicts: number;
+}
+
+export interface ProgrammeReadiness {
+  attentionCount: number;
+  summary: string;
+  stages: ReadinessStage[];
+}
+
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+function cfpStage(input: ProgrammeReadinessInput): ReadinessStage {
+  if (input.cfpForms === 0) {
+    return {
+      id: "cfp",
+      title: "Collect proposals",
+      status: "attention",
+      statusLabel: "Needs setup",
+      summary: "No call-for-proposals form exists yet.",
+      details: ["Create a form before sharing a submission link."],
+      to: "/admin/forms",
+      actionLabel: "Set up the CFP",
+    };
+  }
+
+  if (input.openCfpForms === 0) {
+    return {
+      id: "cfp",
+      title: "Collect proposals",
+      status: "closed",
+      statusLabel: "Not collecting",
+      summary: "No CFP form is accepting submissions right now.",
+      details: [
+        `${plural(input.cfpForms, "CFP form")} saved; open one only when collection should be live.`,
+      ],
+      to: "/admin/forms",
+      actionLabel: "Review forms",
+    };
+  }
+
+  return {
+    id: "cfp",
+    title: "Collect proposals",
+    status: "ready",
+    statusLabel: "Open",
+    summary: `${plural(input.openCfpForms, "CFP form")} accepting submissions.`,
+    details: [`${plural(input.abstracts, "submission")} received so far.`],
+    to: "/admin/forms?status=open",
+    actionLabel: "Manage open forms",
+  };
+}
+
+function reviewStage(input: ProgrammeReadinessInput): ReadinessStage {
+  if (input.abstracts === 0) {
+    return {
+      id: "reviews",
+      title: "Review and decide",
+      status: "waiting",
+      statusLabel: "Waiting",
+      summary: "No submissions have arrived yet.",
+      details: ["Review work will appear here after the first proposal."],
+      to: "/admin/reviews",
+      actionLabel: "Prepare reviews",
+    };
+  }
+
+  const details: string[] = [];
+  if (input.unassignedPendingAbstracts > 0) {
+    details.push(`${plural(input.unassignedPendingAbstracts, "pending submission")} without a review assignment.`);
+  }
+  if (input.pendingAbstracts > 0) {
+    details.push(`${plural(input.pendingAbstracts, "submission")} still awaiting a decision.`);
+  }
+  if (input.queuedDecisions > 0) {
+    details.push(`${plural(input.queuedDecisions, "decision")} staged and ready to commit.`);
+  }
+
+  if (details.length > 0) {
+    return {
+      id: "reviews",
+      title: "Review and decide",
+      status: "attention",
+      statusLabel: "Needs attention",
+      summary: "The review pipeline still has work to finish.",
+      details,
+      to: input.unassignedPendingAbstracts > 0 ? "/admin/reviews" : "/admin/submissions?tab=pending",
+      actionLabel: input.unassignedPendingAbstracts > 0 ? "Assign reviews" : "Finish decisions",
+    };
+  }
+
+  return {
+    id: "reviews",
+    title: "Review and decide",
+    status: "ready",
+    statusLabel: "Complete",
+    summary: "Every submission has a committed decision.",
+    details: [`${plural(input.abstracts, "submission")} processed.`],
+    to: "/admin/submissions",
+    actionLabel: "View submissions",
+  };
+}
+
+function speakerStage(input: ProgrammeReadinessInput): ReadinessStage {
+  if (input.acceptedSpeakers === 0) {
+    return {
+      id: "speakers",
+      title: "Onboard speakers",
+      status: "waiting",
+      statusLabel: "Waiting",
+      summary: "No accepted speakers need onboarding yet.",
+      details: ["Profiles and assigned tasks appear after a proposal is accepted."],
+      to: "/admin/speakers",
+      actionLabel: "View speakers",
+    };
+  }
+
+  const details: string[] = [];
+  if (input.incompleteSpeakerProfiles > 0) {
+    details.push(
+      `${plural(input.incompleteSpeakerProfiles, "accepted speaker")} missing a bio or headshot.`,
+    );
+  }
+  if (input.outstandingSpeakerTasks > 0) {
+    details.push(`${plural(input.outstandingSpeakerTasks, "speaker task")} still outstanding.`);
+  }
+
+  if (details.length > 0) {
+    return {
+      id: "speakers",
+      title: "Onboard speakers",
+      status: "attention",
+      statusLabel: "Needs attention",
+      summary: "Accepted speakers still have onboarding work.",
+      details,
+      to: "/admin/speakers",
+      actionLabel: "Follow up with speakers",
+    };
+  }
+
+  return {
+    id: "speakers",
+    title: "Onboard speakers",
+    status: "ready",
+    statusLabel: "Ready",
+    summary: "Accepted speaker profiles and tasks are complete.",
+    details: [`${plural(input.acceptedSpeakers, "accepted speaker")} ready for the programme.`],
+    to: "/admin/speakers",
+    actionLabel: "View speakers",
+  };
+}
+
+function agendaStage(input: ProgrammeReadinessInput): ReadinessStage {
+  if (input.acceptedSessions === 0) {
+    return {
+      id: "agenda",
+      title: "Publish the agenda",
+      status: "waiting",
+      statusLabel: "Waiting",
+      summary: "No accepted sessions are ready to schedule yet.",
+      details: ["Accepted proposals become programme sessions automatically."],
+      to: "/admin/agenda",
+      actionLabel: "Open the agenda",
+    };
+  }
+
+  const details: string[] = [];
+  if (input.unscheduledAcceptedSessions > 0) {
+    details.push(
+      `${plural(input.unscheduledAcceptedSessions, "accepted session")} missing a complete time or room.`,
+    );
+  }
+  if (input.agendaConflicts > 0) {
+    details.push(`${plural(input.agendaConflicts, "schedule conflict")} to resolve.`);
+  }
+  if (input.unpublishedAcceptedSessions > 0) {
+    details.push(`${plural(input.unpublishedAcceptedSessions, "accepted session")} not public yet.`);
+  }
+
+  if (details.length > 0) {
+    return {
+      id: "agenda",
+      title: "Publish the agenda",
+      status: "attention",
+      statusLabel: "Needs attention",
+      summary: "The public programme is not fully ready.",
+      details,
+      to: input.agendaConflicts > 0 ? "/admin/agenda?view=conflicts" : "/admin/agenda",
+      actionLabel: input.agendaConflicts > 0 ? "Resolve conflicts" : "Finish the agenda",
+    };
+  }
+
+  return {
+    id: "agenda",
+    title: "Publish the agenda",
+    status: "ready",
+    statusLabel: "Published",
+    summary: "Every accepted session is scheduled and public.",
+    details: [`${plural(input.acceptedSessions, "accepted session")} on the public agenda.`],
+    to: "/admin/agenda",
+    actionLabel: "View the agenda",
+  };
+}
+
+export function deriveProgrammeReadiness(input: ProgrammeReadinessInput): ProgrammeReadiness {
+  const stages = [cfpStage(input), reviewStage(input), speakerStage(input), agendaStage(input)];
+  const attentionCount = stages.filter((stage) => stage.status === "attention").length;
+
+  return {
+    attentionCount,
+    summary:
+      attentionCount === 0
+        ? "No current blockers. Keep an eye on waiting stages as the event progresses."
+        : `${plural(attentionCount, "area")} need attention before the programme is ready.`,
+    stages,
+  };
+}

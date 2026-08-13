@@ -1,0 +1,1 @@
+ALTER TABLE `event_people` ADD `is_reviewer` integer DEFAULT false NOT NULL;

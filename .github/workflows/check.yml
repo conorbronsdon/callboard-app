@@ -1,0 +1,88 @@
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.22.0
+          cache: npm
+
+      # postinstall regenerates the gitignored Worker binding types.
+      - run: npm ci
+
+      - name: typecheck + guards + unit tests
+        run: npm run check
+
+      # A route import previously passed npm run check but broke the deploy build.
+      - name: production build
+        run: npm run build
+
+      # Real React Router/Vite build through the guarded demo config path. This
+      # verifier has no deploy step, so it cannot upload to Cloudflare.
+      - name: guarded demo build (offline, no upload)
+        run: npm run demo:build-check
+
+      # Shared with release:verify/predeploy; catches untracked migrations too.
+      - name: migrations match the schema
+        run: npm run migrations:check
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.22.0
+          cache: npm
+
+      # Lockfile-only audit: do not install or execute dependency lifecycle scripts.
+      - name: reject high or critical dependency advisories
+        run: npm audit --audit-level=high
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.22.0
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      # The E2E runner owns, seeds, and removes a one-use local D1/R2 state root.
+      - name: Playwright golden path
+        run: npm run e2e
+
+      - name: Upload Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-failure-${{ github.run_id }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

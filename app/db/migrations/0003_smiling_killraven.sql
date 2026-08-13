@@ -1,0 +1,1 @@
+ALTER TABLE `reviews` ADD `recused_at` integer;

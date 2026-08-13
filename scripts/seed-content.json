@@ -1,0 +1,499 @@
+{
+  "speakers": [
+    {
+      "name": "Dr. Elena Rodriguez",
+      "email": "elena.rodriguez@example.com",
+      "company": "NeuroScale AI",
+      "title": "Director of AI Infrastructure",
+      "bio": "I lead infrastructure engineering at NeuroScale, focusing on distributed LLM serving. With over 8 years in systems engineering, I've designed high-throughput inference platforms processing billions of tokens daily. My work bridges research and production, ensuring cutting-edge models deploy efficiently. I'm passionate about open standards for AI infrastructure and mentoring the next generation of ML engineers. The serving stack I maintain answers about 40,000 requests a second at peak, and most of what I know came from the three times it did not.",
+      "links": {
+        "website": "https://example.com/elena",
+        "twitter": "@erodriguez_ai"
+      }
+    },
+    {
+      "name": "Marcus Chen",
+      "email": "m.chen@example.com",
+      "company": "Clarity Evals",
+      "title": "Senior Eval Engineer",
+      "bio": "I build evaluation frameworks for LLMs at Clarity. My background spans both ML research and production systems. I focus on designing evals that catch real-world failures without becoming brittle benchmarks. Previously worked on safety systems at several major labs. Believe in making eval tooling accessible to all developers. I gave the eval-drift talk at NeurIPS last December and have been arguing about the methodology in DMs ever since.",
+      "links": {}
+    },
+    {
+      "name": "Yuki Tanaka",
+      "email": "yuki@example.com",
+      "company": "Agentic Systems Inc",
+      "title": "Founding Engineer",
+      "bio": "Building autonomous agent systems that actually work. I started Agentic Systems to focus on agent reliability and observability. My passion is creating tools that help developers understand and debug agent behavior in production. Previously worked at major cloud providers on distributed systems. Based in Kyoto, which means most of our incidents start while I am asleep. That is where the obsession with traces you can read cold comes from.",
+      "links": {
+        "twitter": "@yukisys"
+      }
+    },
+    {
+      "name": "Jamie Whitlock",
+      "email": "jwhitlock@example.com",
+      "company": "IndieAI Labs",
+      "title": "Founder, ML Developer",
+      "bio": "Solo founder building ML tools for indie developers. Bootstrapped to profitability with open-source foundations. Interested in making AI accessible without massive compute budgets. Self-taught through building, not credentials. IndieAI runs on two rented GPUs and a spreadsheet I have never managed to replace.",
+      "links": {
+        "website": "https://indieai.dev"
+      }
+    },
+    {
+      "name": "Dr. Amara Okonkwo",
+      "email": "amara.okonkwo@example.com",
+      "company": "TrustML Research",
+      "title": "Head of Research",
+      "bio": "I lead research on trustworthy machine learning systems. PhD in computational statistics, 12 years in academia and industry. Focused on building AI systems that are interpretable, fair, and reliable. Published extensively on model evaluation and safety practices.",
+      "links": {
+        "twitter": "@trustml_amara"
+      }
+    },
+    {
+      "name": "Sophie Laurent",
+      "email": "sophie.laurent@example.com",
+      "company": "Vectorline",
+      "title": "VP of Product",
+      "bio": "Leading product strategy for Vectorline's vector infrastructure. 10 years scaling data systems at massive scale. Passionate about making AI infrastructure simpler for practitioners. Believe great tools unlock innovation.",
+      "links": {}
+    },
+    {
+      "name": "David Kim",
+      "email": "dkim@example.com",
+      "company": "OpenWeights",
+      "title": "Engineer",
+      "bio": "Work on open-source model loading and inference optimization. Frustrated that good inference tools are locked behind commercial APIs. Trying to change that through better open tooling.",
+      "links": {
+        "website": "https://openweights.dev"
+      }
+    },
+    {
+      "name": "Dr. Priya Sharma",
+      "email": "priya.sharma@example.com",
+      "company": "ModelGuard Systems",
+      "title": "Principal Scientist",
+      "bio": "15+ years in applied machine learning and systems design. Currently focused on building robust evaluation systems for production models. Co-authored several papers on LLM safety and reliability. Mentor and speaker on responsible AI practices.",
+      "links": {
+        "twitter": "@priya_modelguard"
+      }
+    },
+    {
+      "name": "Alex Morrison",
+      "email": "amorrison@example.com",
+      "company": "Prompt Engineering Hub",
+      "title": "Developer Relations Lead",
+      "bio": "Help developers master prompt engineering at scale. Background in education and dev advocacy. Believe clear documentation beats magic. Run community workshops on LLM fundamentals.",
+      "links": {}
+    },
+    {
+      "name": "Dr. Liu Wei",
+      "email": "lwei@example.com",
+      "company": "Inference Dynamics Lab",
+      "title": "Lab Director",
+      "bio": "PhD in computer science, specializing in efficient inference. Founded lab to research quantization and optimization techniques. Published 20+ papers on model compression. Partner with several major model developers on efficiency research.",
+      "links": {
+        "twitter": "@inference_lab"
+      }
+    },
+    {
+      "name": "Rachel Green",
+      "email": "rgreen@example.com",
+      "company": "AgentFlow",
+      "title": "Architect",
+      "bio": "Architecting agentic workflows for enterprise customers. 8 years building large-scale systems. Focus on making agent systems observable and debuggable. Love solving complex orchestration problems.",
+      "links": {}
+    },
+    {
+      "name": "Carlos Mendez",
+      "email": "cmendez@example.com",
+      "company": "RegularAI",
+      "title": "Co-Founder",
+      "bio": "Building practical AI tools for regular software teams. Self-taught coder who got frustrated with overly complex ML stacks. RegularAI focuses on simplicity and reliability for non-ML-specialists.",
+      "links": {
+        "website": "https://regularai.dev",
+        "twitter": "@regularai"
+      }
+    },
+    {
+      "name": "Dr. Zainab Hassan",
+      "email": "zainab.hassan@example.com",
+      "company": "SafeAI Institute",
+      "title": "Research Director",
+      "bio": "Researching AI alignment and safety evaluation. PhD in formal verification. 10 years at research institutions studying reliability. Published on agent safety and model robustness. Advocate for rigorous eval standards.",
+      "links": {
+        "twitter": "@zainab_safety"
+      }
+    },
+    {
+      "name": "Tommy Nguyen",
+      "email": "tnguyen@example.com",
+      "company": "TokenFlow",
+      "title": "Software Engineer",
+      "bio": "Building token optimization systems. Interested in making inference cheaper and faster. Background in performance optimization and systems programming. Contribute to several open-source inference projects.",
+      "links": {}
+    },
+    {
+      "name": "Dr. Fatima Al-Rashid",
+      "email": "fatima.alrashid@example.com",
+      "company": "Language Models Lab",
+      "title": "Senior Researcher",
+      "bio": "Research on language model capabilities and limitations. PhD from top-tier institution, 15 years in NLP. Published extensively on eval design and model behavior. Passionate about rigorous benchmarking practices.",
+      "links": {
+        "twitter": "@lmlab_fatima"
+      }
+    },
+    {
+      "name": "Ethan Blake",
+      "email": "eblake@example.com",
+      "company": "StreamLLM",
+      "title": "Product Manager",
+      "bio": "Bringing streaming LLM capabilities to production. Background in cloud infrastructure and API design. Focused on making real-time AI accessible. Love working on latency problems.",
+      "links": {}
+    },
+    {
+      "name": "Dr. Mei Lin",
+      "email": "mlin@example.com",
+      "company": "Robust ML Systems",
+      "title": "Founding Researcher",
+      "bio": "PhD in ML systems. Founded lab focused on reliability engineering for AI. 8 years building and studying robust systems. Published on failure modes in production AI. Strong believer in empirical evaluation.",
+      "links": {
+        "website": "https://robustml.example.com",
+        "twitter": "@robustaml"
+      }
+    },
+    {
+      "name": "Gabriel Santos",
+      "email": "gsantos@example.com",
+      "company": "Edge Intelligence Co",
+      "title": "CTO",
+      "bio": "Scaling LLMs to edge devices. Technical leader with 12 years in systems and infrastructure. Passionate about democratizing AI through on-device capabilities. Former IC at multiple scale-ups.",
+      "links": {}
+    },
+    {
+      "name": "Dr. Anna Kowalski",
+      "email": "anna.kowalski@example.com",
+      "company": "AI Reliability Labs",
+      "title": "Lab Director",
+      "bio": "Leading research on AI system reliability. PhD in statistics, 18 years studying robustness and reproducibility. Published several papers on eval rigor. Strong advocate for rigorous scientific standards in AI.",
+      "links": {
+        "twitter": "@reliabilitylab"
+      }
+    },
+    {
+      "name": "Kevin Park",
+      "email": "kpark@example.com",
+      "company": "FastInference",
+      "title": "Principal Engineer",
+      "bio": "Optimizing inference for speed and efficiency. 10 years in systems optimization. Passionate about squeezing every bit of performance from hardware. Contribute to multiple inference frameworks.",
+      "links": {}
+    },
+    {
+      "name": "Dr. Leila Saeed",
+      "email": "leila.saeed@example.com",
+      "company": "MCP Standards Group",
+      "title": "Executive Director",
+      "bio": "Leading standards development for model context protocol. PhD in distributed systems. 15 years building interoperable systems. Believe open standards power innovation. Active in several open initiatives.",
+      "links": {
+        "website": "https://mcp.example.com",
+        "twitter": "@mcp_leila"
+      }
+    },
+    {
+      "name": "Ryan Chen",
+      "email": "rchen@example.com",
+      "company": "DevTools AI",
+      "title": "Founder",
+      "bio": "Building AI developer tools that actually integrate cleanly. Bootstrap background in startups. Focused on solving real developer pain points, not hype. Obsessed with great developer experience.",
+      "links": {
+        "website": "https://devtools.ai"
+      }
+    },
+    {
+      "name": "Dr. Asha Patel",
+      "email": "asha.patel@example.com",
+      "company": "Agentic Reliability Institute",
+      "title": "Senior Researcher",
+      "bio": "Researching agent failure modes and recovery strategies. PhD in systems engineering. 12 years at major labs. Published on agent robustness and safety. Strong focus on real-world deployment challenges.",
+      "links": {
+        "twitter": "@agentic_asha"
+      }
+    },
+    {
+      "name": "Marcus Johnson",
+      "email": "mjohnson@example.com",
+      "company": "InferTech",
+      "title": "VP Engineering",
+      "bio": "Leading inference infrastructure at scale. 15 years building distributed systems. Passionate about operational excellence and reliability. Former architect at hyperscale cloud company.",
+      "links": {}
+    },
+    {
+      "name": "Dr. Sophia Vasilis",
+      "email": "sophia.vasilis@example.com",
+      "company": "Model Evaluation Corp",
+      "title": "Research Lead",
+      "bio": "PhD in machine learning. Specializes in comprehensive model evaluation. 10 years building eval infrastructure. Published on benchmark design and reliability. Advocate for scientific rigor in AI evaluation.",
+      "links": {
+        "twitter": "@eval_sophia"
+      }
+    },
+    {
+      "name": "Adrian Lee",
+      "email": "alee@example.com",
+      "company": "FinetuneAI",
+      "title": "Lead Engineer",
+      "bio": "Simplifying fine-tuning for production models. Background in applied ML and infrastructure. Built training pipelines at multiple companies. Passionate about democratizing model customization.",
+      "links": {}
+    },
+    {
+      "name": "Dr. Nadia Volkov",
+      "email": "nadia.volkov@example.com",
+      "company": "Trustworthy AI Lab",
+      "title": "PI",
+      "bio": "Leading research on AI trustworthiness and alignment. PhD from prestigious institution, 16 years in AI research. Published extensively on model behavior and evaluation. Strong mentor and community leader.",
+      "links": {
+        "website": "https://trustai.example.com",
+        "twitter": "@trustai_nadia"
+      }
+    },
+    {
+      "name": "James Miller",
+      "email": "jmiller@example.com",
+      "company": "Prompt Labs",
+      "title": "Co-Founder",
+      "bio": "Building developer tools for LLM applications. Self-taught engineer with 8 years startup experience. Focus on practical solutions that solve real problems. Community-driven approach to product development.",
+      "links": {
+        "website": "https://promptlabs.dev"
+      }
+    },
+    {
+      "name": "Dr. Ravi Krishnan",
+      "email": "ravi.krishnan@example.com",
+      "company": "Efficient ML Systems",
+      "title": "Principal Scientist",
+      "bio": "PhD in computer science, specializing in efficient ML. 14 years combining research and production systems. Published on model compression and optimization. Passionate about practical efficiency improvements.",
+      "links": {
+        "twitter": "@efficientml"
+      }
+    },
+    {
+      "name": "Lisa Wang",
+      "email": "lwang@example.com",
+      "company": "Agent OS",
+      "title": "Software Architect",
+      "bio": "Designing operating systems for AI agents. 12 years in systems architecture. Previous roles at major tech companies. Focused on agent observability and control. Believe agents need better primitive abstractions.",
+      "links": {}
+    }
+  ],
+  "abstracts": [
+    {
+      "title": "Building LLM Infrastructure That Scales: Lessons from Processing 100B+ Tokens Daily",
+      "abstract": "Modern LLM applications demand infrastructure that handles massive scale reliably. We'll explore distributed serving patterns, batching strategies, and optimization techniques that work in production. Through real examples from systems processing billions of tokens daily, you'll learn how to architect inference platforms that maintain low latency while maximizing throughput. We'll dive into containerization, load balancing, and graceful degradation patterns. By the end, you'll understand the key tradeoffs in building production-grade LLM infrastructure and how to make architectural decisions that balance cost, latency, and reliability. Bring your current p99 and your monthly inference bill; the capacity model we walk through is the one that took ours from 940ms to 210ms without adding a single GPU.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 0
+    },
+    {
+      "title": "Workshop: Building Your First Agent System",
+      "abstract": "Get hands-on experience building autonomous agent systems from scratch. We'll start with agent basics: state management, decision loops, and tool integration. You'll build a working agent that can use multiple tools and handle errors gracefully. We'll explore different agent architectures: reactive agents, planning agents, and multi-step reasoning patterns. Participants will code along with pre-configured environments. We'll discuss common failure modes and how to debug agent behavior. By the end, you'll have a solid foundation for building agents and know where to dive deeper for production systems. Come with a laptop and a Python 3.11 environment. You will leave with a running agent, a trace of every tool call it made, and a short list of the mistakes I made first so you can skip them.",
+      "format": "workshop",
+      "track": "Agents",
+      "speakerIndex": 2
+    },
+    {
+      "title": "Evaluation Beyond Benchmarks: Building Evals That Catch Real Failures",
+      "abstract": "Standard benchmarks often miss the failures that matter in production. This talk explores building comprehensive evaluation frameworks that actually predict real-world performance. We'll discuss what makes evals brittle versus robust. You'll learn techniques for designing evals that are rigorous without becoming expensive or gaming-prone. We'll cover automated evaluation systems, human-in-the-loop approaches, and continuous monitoring. Practical examples from production systems show how different evaluation strategies catch different failure classes. Walk away with actionable patterns for building better evals. Fair warning: about half of this talk is failures — three eval suites we shipped that stayed green while the model got measurably worse, and what we changed to make them able to fail.",
+      "format": "talk",
+      "track": "Evals & Reliability",
+      "speakerIndex": 1
+    },
+    {
+      "title": "Democratizing AI: Building Excellent Tools Without Massive Compute Budgets",
+      "abstract": "You don't need billion-dollar budgets to build impactful AI tools. This talk explores how solo founders and small teams are shipping competitive AI products through smart architecture choices. We'll discuss cost optimization strategies, efficient model selection, and architectural patterns that maximize impact per dollar spent. Real examples show how open-source foundations and clever engineering solve problems previously requiring massive resources. Learn about on-device inference, caching strategies, and using models appropriately. Discover how constraint can drive innovation and how to build sustainable AI products as a bootstrapped founder. Aimed at solo builders and two-person teams. Every number in this talk comes off a real invoice, and the whole stack runs for less than the cost of a team lunch.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 3
+    },
+    {
+      "title": "Panel: The Future of Agent Reliability and Safety",
+      "abstract": "As agent systems move from research to production, reliability and safety become paramount. This expert panel discusses current approaches to making agents more robust and trustworthy. Panelists will explore open problems: how do we make agents more transparent? What does safety look like in production agent systems? How do we handle agent failures gracefully? The panel will discuss current evaluation approaches and their limitations. There will be time for audience questions on the challenges and opportunities in making agents reliable enough for critical applications. Expect candid discussion on what's working, what's not, and where the field is heading.",
+      "format": "panel",
+      "track": "Agents",
+      "speakerIndex": 4
+    },
+    {
+      "title": "Inference Optimization: Getting Maximum Performance from Your Hardware",
+      "abstract": "Every millisecond and byte of memory matters in production inference. This deep-dive explores optimization techniques that improve both latency and throughput. We'll cover quantization strategies that maintain quality while reducing compute needs, batching algorithms that maximize hardware utilization, and serving patterns that work across different hardware. You'll learn profiling techniques to identify bottlenecks and understand tradeoffs between different optimization approaches. Real benchmarks show the impact of various optimization strategies. Whether you're optimizing for edge devices, GPUs, or TPUs, you'll leave with concrete techniques to improve inference performance.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 5
+    },
+    {
+      "title": "Open Source Inference Tools: Building Better Infrastructure Together",
+      "abstract": "Great open-source inference projects are changing how we deploy models. This talk explores why open tools matter and how communities are building alternatives to commercial lock-in. We'll discuss what makes inference tools great: ease of use, performance, reliability, and extensibility. Real examples show how projects like vLLM, TorchServe, and others are advancing the field. We'll discuss contributing to these projects, choosing the right tool for your use case, and how to evaluate open infrastructure. Learn how individual contributions compound and how communities accelerate innovation.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 6
+    },
+    {
+      "title": "Rigorous AI Evaluation: Scientific Methods for Model Assessment",
+      "abstract": "Evaluation is the foundation of trustworthy AI systems. This talk emphasizes scientific rigor in AI benchmarking and assessment. We'll explore common pitfalls: benchmark saturation, gaming, and overfitting to specific tests. You'll learn framework for rigorous evaluation that includes diverse test suites, adversarial testing, and continuous monitoring. We'll discuss how to design evals that generalize and avoid false positives. Examples show how rigorous evaluation caught important model limitations that standard benchmarks missed. By applying scientific principles to evaluation, you can build systems that are genuinely reliable.",
+      "format": "talk",
+      "track": "Evals & Reliability",
+      "speakerIndex": 7
+    },
+    {
+      "title": "Workshop: Prompt Engineering for Real Applications",
+      "abstract": "Prompt engineering is both art and science. This hands-on workshop covers practical techniques for building robust prompts that work across diverse use cases. We'll explore structured prompting, few-shot learning, chain-of-thought reasoning, and prompt testing strategies. You'll write prompts for different tasks and learn how to debug when prompts fail. We'll discuss prompt versioning and testing frameworks. Participants will understand how prompt quality impacts model behavior and learn systematic approaches to improvement. You'll leave with tooling and techniques you can apply immediately to your own LLM applications.",
+      "format": "workshop",
+      "track": "Agents",
+      "speakerIndex": 8
+    },
+    {
+      "title": "Model Quantization: Achieving Efficiency Without Sacrificing Quality",
+      "abstract": "Quantization is one of the most effective ways to reduce model size and inference cost. This talk explores quantization techniques from basics to advanced approaches. We'll cover post-training quantization, quantization-aware training, and mixed-precision strategies. You'll learn how different quantization approaches affect model quality and how to measure impact. Real benchmarks show impressive efficiency gains: 4-bit quantization often achieves minimal quality loss while 4x-ing throughput. We'll discuss when to use different quantization strategies and how to evaluate their impact. Practical techniques you can apply to your own models.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 9
+    },
+    {
+      "title": "Debugging Agent Failures: Making Agents Observable and Interpretable",
+      "abstract": "When agents fail, understanding why is critical. This talk explores techniques for making agent systems observable and debuggable. We'll discuss logging strategies that capture relevant context, tracing patterns that show agent decision paths, and visualization tools that reveal agent behavior. You'll learn how to identify where agents go wrong: is it the tool definition? The decision logic? The tool implementations? Real examples show how better observability caught and fixed agent failures. We'll explore frameworks and tools that support agent debugging. Practical patterns that will save you hours of troubleshooting when agents misbehave.",
+      "format": "talk",
+      "track": "Agents",
+      "speakerIndex": 10
+    },
+    {
+      "title": "Building for Developers: Creating AI Tools That Developers Actually Want to Use",
+      "abstract": "Many AI tools fail because they're designed by researchers, not for developers. This talk explores what makes developer-focused AI tools successful. We'll discuss API design that feels natural, error messages that actually help, and documentation that anticipates questions. Real examples show tools that nailed developer experience versus those that didn't. You'll learn about user research with developers, iterating on feedback, and building product-developer relationships. Whether you're building infrastructure, frameworks, or applications, these principles apply. Great developer experience is your competitive advantage.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 11
+    },
+    {
+      "title": "Agent Safety and Alignment: Practical Approaches to Trustworthy Autonomous Systems",
+      "abstract": "As agents become more capable and autonomous, safety becomes critical. This talk explores practical approaches to making agents safer and more aligned with intended behavior. We'll discuss safety layers, constraint systems, and verification approaches. You'll learn how to design agents with built-in safeguards and how to test safety properties. Real examples show safety failures and how they could have been prevented. We'll explore the frontier of agent safety: how do we specify what agents should do in complex, novel situations? Practical techniques that work in production today.",
+      "format": "talk",
+      "track": "Evals & Reliability",
+      "speakerIndex": 12
+    },
+    {
+      "title": "Workshop: Fine-tuning LLMs for Custom Tasks",
+      "abstract": "Fine-tuning lets you adapt general models to specific tasks and styles. This workshop covers the practical side of fine-tuning: data preparation, training configuration, evaluation, and deployment. We'll discuss when fine-tuning makes sense versus prompt engineering or retrieval. You'll prepare datasets, run fine-tuning jobs, and evaluate results. We'll cover parameter-efficient techniques like LoRA that reduce training costs. Participants will troubleshoot common issues: overfitting, mode collapse, and quality degradation. You'll leave with a reproducible fine-tuning pipeline you can adapt for your use cases.",
+      "format": "workshop",
+      "track": "Agents",
+      "speakerIndex": 13
+    },
+    {
+      "title": "Benchmark Design for Language Models: Creating Evals That Matter",
+      "abstract": "Not all benchmarks are created equal. This talk explores how to design benchmarks that meaningfully assess model capabilities and limitations. We'll discuss avoiding benchmark saturation, gaming, and brittleness. You'll learn techniques for creating robust test sets: adversarial examples, diverse domains, and edge cases. We'll explore benchmark design mistakes and how they led to misleading conclusions. Real examples show how carefully designed evals revealed important model behaviors that standard benchmarks missed. Framework for thinking about eval design that applies whether you're building evals or using existing benchmarks.",
+      "format": "talk",
+      "track": "Evals & Reliability",
+      "speakerIndex": 14
+    },
+    {
+      "title": "Real-time LLM Applications: Streaming, Latency, and User Experience",
+      "abstract": "Streaming responses and low-latency inference dramatically improve user experience in LLM applications. This talk explores technical approaches to building real-time capable systems. We'll discuss streaming protocols, token-by-token delivery, and techniques for maintaining low latency under load. You'll learn about client-side streaming handling and how it improves perceived responsiveness. Real examples show how streaming features changed user interaction patterns. We'll explore tradeoffs: streaming adds complexity but dramatically improves experience. Practical patterns for building responsive LLM applications.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 15
+    },
+    {
+      "title": "On-Device AI: Running Capable Models Where Data Lives",
+      "abstract": "Deploying models to edge devices enables privacy-preserving AI and eliminates network latency. This talk explores the technical challenges and solutions for on-device inference. We'll discuss model compression, device heterogeneity, and optimization for mobile/IoT hardware. You'll learn which models work on-device and how to quantize and optimize them. Real examples show successful on-device deployments. We'll discuss tradeoffs: on-device means smaller models and limited resources, but gains in latency and privacy. Techniques for making capable AI accessible on the edge.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 16
+    },
+    {
+      "title": "Panel: Evaluating and Trusting Large Language Models",
+      "abstract": "How do we know if we can trust an LLM for critical applications? This panel brings together researchers and practitioners to discuss evaluation frameworks and trustworthiness. Panelists will address: what does it mean to trust a model? How do we evaluate reliability? What guarantees can we actually provide? The panel will discuss current evaluation practices and their limitations. There will be focus on real-world deployment challenges: how do safety properties that hold in the lab translate to production? Audience questions welcome on building trustworthy LLM systems.",
+      "format": "panel",
+      "track": "Evals & Reliability",
+      "speakerIndex": 17
+    },
+    {
+      "title": "Vector Databases and Retrieval: Building Effective RAG Systems",
+      "abstract": "Retrieval-Augmented Generation combines LLMs with external knowledge for powerful applications. This talk explores the infrastructure supporting RAG: vector databases, embedding models, and retrieval algorithms. We'll discuss when RAG makes sense and its limitations. You'll learn about vector similarity search, indexing strategies, and query optimization. We'll cover common issues: false positives, ranking problems, and semantic gaps between queries and documents. Real examples show RAG systems in production and the challenges they face. Practical guide to building RAG systems that actually work.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 18
+    },
+    {
+      "title": "Workshop: Building Reliable Multi-Step Agent Workflows",
+      "abstract": "Complex tasks require agents to plan and execute multi-step workflows. This workshop covers designing reliable agent workflows that handle failures gracefully. We'll explore planning strategies, error recovery, and state management. Participants will build agents that decompose problems, handle partial failures, and adapt to unexpected situations. We'll discuss how to test workflows and ensure they work reliably. You'll learn about observability tools that help you understand what your agents are doing. Practical patterns for building production-grade agent systems.",
+      "format": "workshop",
+      "track": "Agents",
+      "speakerIndex": 19
+    },
+    {
+      "title": "Sustainable AI Development: Building Systems That Don't Burn Money",
+      "abstract": "AI systems can be expensive at scale. This talk explores how to build sustainable AI systems that don't require unlimited budgets. We'll discuss cost analysis, efficiency optimization, and architectural choices that reduce expense. You'll learn about model selection: bigger isn't always better for your use case. We'll explore caching strategies, batching, and request filtering that reduce unnecessary computation. Real examples show how companies reduced AI costs significantly through smart engineering. Frameworks for thinking about AI economics and building sustainable systems.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 20
+    },
+    {
+      "title": "Model Context Protocol: Enabling Interoperable Agent Systems",
+      "abstract": "The Model Context Protocol is emerging as the standard for agent-model interaction. This talk explores MCP: what it is, why it matters, and how to use it. We'll discuss standardization benefits for agents and models. You'll learn about MCP architecture, implementing MCP tools, and integrating MCP into agent systems. We'll explore how MCP enables better composability and safer agent design. Real examples show MCP in production. We'll discuss the evolution of agent standards and MCP's role in the ecosystem. Practical introduction to building MCP-compatible systems.",
+      "format": "talk",
+      "track": "Agents",
+      "speakerIndex": 21
+    },
+    {
+      "title": "Adversarial Evaluation: Testing Model Robustness Against Edge Cases",
+      "abstract": "Standard benchmarks often miss edge cases and adversarial scenarios that break models. This talk explores adversarial evaluation: systematically testing models against challenging inputs. We'll discuss adversarial example generation, red-teaming approaches, and failure mode analysis. You'll learn how to construct tests that stress-test model capabilities. Real examples show how adversarial evaluation revealed important model limitations. We'll discuss how to use adversarial insights to improve systems. Practical techniques for building evaluation frameworks that catch real-world failures.",
+      "format": "talk",
+      "track": "Evals & Reliability",
+      "speakerIndex": 22
+    },
+    {
+      "title": "Workshop: Deploying and Scaling LLM Applications",
+      "abstract": "Getting models to production is different from building prototypes. This workshop covers deployment best practices from containerization to monitoring. Participants will deploy models using various approaches: API services, serverless, and on-device. We'll discuss scaling strategies, cost optimization, and reliability patterns. You'll learn about monitoring and observability for production models. We'll cover handling failures, rollbacks, and zero-downtime deployments. Practical workshop with hands-on experience deploying real models. You'll leave with a deployment checklist and understanding of production considerations.",
+      "format": "workshop",
+      "track": "Infrastructure",
+      "speakerIndex": 23
+    },
+    {
+      "title": "Rigorous Benchmarking: Measuring What Actually Matters",
+      "abstract": "Benchmarking is harder than it looks. This talk explores how to create meaningful benchmarks that reveal model capabilities and limitations. We'll discuss benchmark design: task selection, dataset construction, and metric choice. You'll learn about avoiding gaming, generalization challenges, and how to interpret results. Real examples show how benchmark choices led to misleading conclusions. We'll explore benchmark analysis: significance testing, confidence intervals, and understanding variation. Frameworks for thinking about measurement in AI and building benchmarks you can trust.",
+      "format": "talk",
+      "track": "Evals & Reliability",
+      "speakerIndex": 24
+    },
+    {
+      "title": "Customizing Models at Scale: Making Adaptation Practical",
+      "abstract": "One-size-fits-all models don't work for all applications. This talk explores practical approaches to model customization: fine-tuning, prompt engineering, retrieval, and architectures that enable customization. We'll discuss when each approach makes sense and their tradeoffs. You'll learn about parameter-efficient adaptation methods that reduce costs. Real examples show customization at scale: how platforms enable users to adapt models. We'll explore the future of customizable AI. Practical patterns for building systems that adapt to diverse use cases.",
+      "format": "talk",
+      "track": "Agents",
+      "speakerIndex": 25
+    },
+    {
+      "title": "AI Infrastructure as Commodity: Building on Stable Foundations",
+      "abstract": "AI infrastructure is maturing toward commodity components. This talk explores how standardization enables building on solid foundations rather than reinventing basics. We'll discuss mature tools for serving, inference optimization, and observability. You'll learn where commodity infrastructure works and where you still need custom solutions. Real examples show how focusing on differentiation rather than infrastructure accelerates development. We'll discuss choosing between building and buying infrastructure components. Strategic framework for making build-versus-buy decisions.",
+      "format": "talk",
+      "track": "Infrastructure",
+      "speakerIndex": 26
+    },
+    {
+      "title": "Agent Failure Modes: Understanding How Agents Break",
+      "abstract": "Production agents will fail in surprising ways. This talk catalogs common failure modes and how to prevent them. We'll discuss hallucinations, tool failures, reasoning errors, and state management issues. You'll learn how failures cascade through agent systems. Real examples show production failures and lessons learned. We'll explore testing strategies that reveal failure modes before production. Understanding failure modes guides better agent design and safer systems. Practical knowledge that will help you build more robust agents.",
+      "format": "talk",
+      "track": "Agents",
+      "speakerIndex": 27
+    },
+    {
+      "title": "Transparency and Interpretability: Making Model Decisions Understandable",
+      "abstract": "Black-box models raise trust and accountability concerns. This talk explores techniques for making model decisions more interpretable. We'll discuss explanation methods, attention visualization, and feature attribution. You'll learn when interpretability matters most: critical decisions, regulatory compliance, and user trust. Real examples show how interpretability revealed concerning model behaviors. We'll explore tradeoffs: interpretability often costs performance or convenience. Frameworks for thinking about transparency and practical tools for understanding models.",
+      "format": "talk",
+      "track": "Evals & Reliability",
+      "speakerIndex": 28
+    },
+    {
+      "title": "Workshop: Building Safe and Aligned Agent Systems",
+      "abstract": "Safety isn't optional in production agents. This workshop covers practical approaches to safety and alignment. Participants will design safety layers, implement constraint systems, and test safety properties. We'll discuss specification challenges: how do you specify safe behavior in novel situations? You'll learn about red-teaming to identify safety issues. We'll cover monitoring for unsafe behaviors in production. Hands-on exercises with safety-focused agent architectures. You'll leave with concrete patterns for building agents you can trust.",
+      "format": "workshop",
+      "track": "Evals & Reliability",
+      "speakerIndex": 29
+    }
+  ]
+}

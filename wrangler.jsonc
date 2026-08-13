@@ -1,0 +1,58 @@
+/**
+ * Wrangler config. https://developers.cloudflare.com/workers/wrangler/configuration/
+ *
+ * The `database_id` and `APP_URL` values below are PLACEHOLDERS, not a real
+ * database or a real origin. Local dev uses wrangler's local D1 (Miniflare) and
+ * never reads `database_id`. Before the first REMOTE deploy, run
+ * `wrangler d1 create callboard-db`, paste the id it prints over the all-zero
+ * placeholder, and set `APP_URL` to your own deployed Worker origin — an exact
+ * lowercase HTTPS origin with no path, query, or fragment. See README.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "callboard",
+	"compatibility_date": "2026-08-08",
+	"main": "./workers/app.ts",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": { "enabled": true },
+	"upload_source_maps": true,
+
+	"vars": {
+		// Absolute origin used to build magic links. Overridden per environment.
+		"APP_URL": "https://your-worker.example.com",
+		// Default deployment is production and must never expose seeded admin auth.
+		"DEPLOYMENT_PROFILE": "production",
+		// A second explicit opt-in; ignored unless DEPLOYMENT_PROFILE is "demo".
+		"DEMO_MODE": "0"
+	},
+
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "callboard-db",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "app/db/migrations"
+		}
+	],
+
+	"r2_buckets": [
+		{
+			"binding": "FILES",
+			"bucket_name": "callboard-files"
+		}
+	],
+
+	// Workers AI powers the advisory first-pass triage on an abstract
+	// (app/lib/review/ai-triage.server.ts). No API key and no secret: the binding
+	// IS the credential. A deployment that omits this block still runs — every
+	// triage surface degrades to a visible "unavailable in this deployment".
+	"ai": { "binding": "AI" },
+
+	// Cron expressions must match a job's `cron` in app/lib/jobs/registry.server.ts.
+	"triggers": {
+		"crons": ["0 15 * * *", "*/30 * * * *"]
+	}
+
+	// Secrets (SESSION_SECRET, MAGIC_LINK_SECRET, RATE_LIMIT_SECRET, RESEND_API_KEY) are NEVER in
+	// this file. Local: .dev.vars. Deployed: `wrangler secret put <NAME>`.
+}

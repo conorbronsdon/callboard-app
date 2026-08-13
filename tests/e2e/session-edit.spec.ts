@@ -1,0 +1,162 @@
+import { expect, test } from "@playwright/test";
+
+/**
+ * Organizer session editing, end to end: the title an organizer types reaches
+ * the PUBLIC schedule, and a speaker put on two overlapping sessions raises the
+ * double-booking warning on the session itself.
+ *
+ * Both halves are paired with their negative: the conflict banner is asserted
+ * absent while the two sessions overlap but share nobody, so the assertion that
+ * it appears afterwards is about the shared speaker and not about the page
+ * simply always rendering a banner.
+ *
+ * Desktop viewport: an organizer edits the programme on a laptop.
+ */
+test.use({ viewport: { width: 1440, height: 1000 } });
+
+type Page = import("@playwright/test").Page;
+
+const DAY = "2026-10-08";
+
+async function signInAsAdmin(page: Page) {
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "Enter organizer workspace", exact: true }).click();
+  await page.waitForURL(/\/admin/);
+}
+
+function attrValues(html: string, attr: string): string[] {
+  return [...html.matchAll(new RegExp(`data-${attr}="([^"]+)"`, "g"))].map((m) => m[1]);
+}
+
+async function programmeIds(page: Page): Promise<string[]> {
+  const html = await (await page.request.get("/admin/agenda?view=list")).text();
+  const ids = attrValues(html, "session-row");
+  expect(ids.length, "seeded programme sessions").toBeGreaterThanOrEqual(2);
+  // The drill-in has to be REACHABLE from the agenda, not just routable.
+  expect(attrValues(html, "session-edit-link")).toContain(ids[0]);
+  return ids;
+}
+
+/** The add-speaker picker's options: person id plus the label it shows. */
+async function candidates(
+  page: Page,
+  sessionId: string,
+): Promise<{ id: string; label: string }[]> {
+  const html = await (await page.request.get(`/admin/sessions/${sessionId}`)).text();
+  const select = /<select[^>]*name="personId"[^>]*>([\s\S]*?)<\/select>/.exec(html);
+  if (!select) return [];
+  return [...select[1].matchAll(/value="([^"]+)"[^>]*>([^<]+)</g)].map((match) => ({
+    id: match[1],
+    label: match[2],
+  }));
+}
+
+async function scheduleAt(page: Page, sessionId: string, roomId: string, time: string) {
+  await page.request.post("/admin/agenda", {
+    form: {
+      intent: "schedule",
+      sessionId,
+      roomId,
+      day: DAY,
+      time,
+      durationMinutes: "60",
+      view: "list",
+      returnDay: DAY,
+    },
+    maxRedirects: 0,
+  });
+}
+
+test("an organizer's title edit reaches the public schedule", async ({ page }) => {
+  await signInAsAdmin(page);
+  const [sessionId] = await programmeIds(page);
+
+  await page.goto(`/admin/sessions/${sessionId}`);
+  const titleField = page.locator('[data-session-edit-form] input[name="title"]');
+  const original = await titleField.inputValue();
+  expect(original.length).toBeGreaterThan(0);
+
+  const publicHref = await page
+    .getByRole("link", { name: "View on public schedule" })
+    .getAttribute("href");
+  expect(publicHref, "a published session links to its public page").toBeTruthy();
+  const scheduleHref = publicHref!.replace(/\/schedule\/.*$/, "/schedule");
+
+  const renamed = "Renamed by the programme team (e2e)";
+  await titleField.fill(renamed);
+  await page.locator('[data-session-edit-form] button[type="submit"]').click();
+  await page.waitForURL(/saved=1/);
+  await expect(page.getByText("Session details saved.")).toBeVisible();
+
+  await page.goto(scheduleHref);
+  await expect(page.getByText(renamed).first()).toBeVisible();
+  await expect(page.getByText(original, { exact: true })).toHaveCount(0);
+
+  // Put it back: this suite runs serially against one disposable database and
+  // later specs assert on the seeded titles.
+  await page.goto(`/admin/sessions/${sessionId}`);
+  await titleField.fill(original);
+  await page.locator('[data-session-edit-form] button[type="submit"]').click();
+  await page.waitForURL(/saved=1/);
+  await page.goto(scheduleHref);
+  await expect(page.getByText(original).first()).toBeVisible();
+});
+
+test("assigning one speaker to two overlapping sessions raises the warning", async ({
+  page,
+}) => {
+  await signInAsAdmin(page);
+  const [first, second] = await programmeIds(page);
+
+  const roomsHtml = await (await page.request.get("/admin/agenda/rooms")).text();
+  const roomIds = attrValues(roomsHtml, "room-row");
+  expect(roomIds.length).toBeGreaterThanOrEqual(2);
+
+  // Same hour, different rooms: overlapping in time, sharing nobody yet.
+  await scheduleAt(page, first, roomIds[0], "14:00");
+  await scheduleAt(page, second, roomIds[1], "14:00");
+
+  const onSecond = await candidates(page, second);
+  const shared = (await candidates(page, first)).find((person) =>
+    onSecond.some((other) => other.id === person.id),
+  );
+  expect(shared, "a person free on both sessions").toBeTruthy();
+  // The picker labels the option "Name — email"; the warning names the person.
+  const personName = shared!.label.split("—")[0].trim();
+  const warning = `Speaker double-booked · ${personName}`;
+
+  /*
+   * Asserted on the SPECIFIC warning, not on the presence of any banner: this
+   * suite runs serially against one database and earlier specs leave their own
+   * placements behind, so "no conflicts at all" is not a property this test can
+   * own. What it owns is that THIS person is not double-booked yet.
+   */
+  await page.goto(`/admin/sessions/${first}`);
+  await expect(page.getByText(warning)).toHaveCount(0);
+
+  for (const sessionId of [first, second]) {
+    await page.goto(`/admin/sessions/${sessionId}`);
+    await page.selectOption('[data-add-participant-form] select[name="personId"]', shared!.id);
+    await page.selectOption('[data-add-participant-form] select[name="role"]', "panelist");
+    await page.locator('[data-add-participant-form] button[type="submit"]').click();
+    await page.waitForURL(/added=/);
+  }
+
+  await page.goto(`/admin/sessions/${first}`);
+  await expect(page.locator("[data-session-conflict]")).toHaveCount(1);
+  await expect(page.getByText(warning).first()).toBeVisible();
+
+  // The agenda shows it too, which is where an organizer would notice.
+  const agenda = await (await page.request.get("/admin/agenda?view=conflicts")).text();
+  expect(agenda).toContain(`Speaker double-booked · ${personName}`);
+
+  // Leave the programme as we found it.
+  for (const sessionId of [first, second]) {
+    await page.request.post(`/admin/sessions/${sessionId}`, {
+      form: { intent: "remove-participant", personId: shared!.id },
+      maxRedirects: 0,
+    });
+  }
+  await page.goto(`/admin/sessions/${first}`);
+  await expect(page.getByText(warning)).toHaveCount(0);
+});

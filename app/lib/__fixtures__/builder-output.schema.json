@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "fields": [
+    {
+      "fieldId": "000000fd-0000-4000-8000-000000000001",
+      "key": "title",
+      "type": "text",
+      "label": "Session title",
+      "scope": "submission",
+      "order": 0,
+      "required": true,
+      "locked": true,
+      "validation": {
+        "maxLength": 120
+      }
+    },
+    {
+      "fieldId": "000000fd-0000-4000-8000-000000000002",
+      "key": "abstract",
+      "type": "wysiwyg",
+      "label": "Abstract",
+      "scope": "submission",
+      "order": 1,
+      "required": true,
+      "locked": true,
+      "validation": {
+        "minLength": 200,
+        "maxLength": 4000
+      }
+    },
+    {
+      "fieldId": "000000fd-0000-4000-8000-000000000004",
+      "key": "format",
+      "type": "select",
+      "label": "Format",
+      "scope": "submission",
+      "order": 2,
+      "required": true,
+      "locked": false,
+      "validation": {
+        "options": [
+          "Talk",
+          "Workshop",
+          "Lightning"
+        ]
+      }
+    },
+    {
+      "fieldId": "d0cdf56e-ec2f-4b8b-a490-4c2e75c4bcbd",
+      "key": "workshop_prereqs",
+      "type": "textarea",
+      "label": "Workshop prerequisites",
+      "scope": "submission",
+      "order": 3,
+      "required": false,
+      "validation": {
+        "maxLength": 300
+      }
+    }
+  ],
+  "rules": [
+    {
+      "id": "f8fe5eab-2a65-4e2a-80e2-ef87869392a1",
+      "match": "all",
+      "when": [
+        {
+          "fieldKey": "format",
+          "op": "equals",
+          "value": "Workshop"
+        }
+      ],
+      "action": "show",
+      "targetKeys": [
+        "workshop_prereqs"
+      ],
+      "scope": "submission"
+    }
+  ],
+  "combinedLimits": [
+    {
+      "id": "f2c8d00c-690a-4da0-b952-193bbace08f8",
+      "label": "Printed programme block",
+      "fieldKeys": [
+        "title",
+        "workshop_prereqs"
+      ],
+      "maxChars": 60,
+      "scope": "submission"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "id": "a091f382-affc-43d3-acd4-9c050b35dc00",
+        "match": "all",
+        "when": [
+          {
+            "fieldKey": "format",
+            "op": "equals",
+            "value": "Workshop"
+          }
+        ],
+        "trackId": "000000tr-0000-4000-8000-000000000003",
+        "order": 0
+      },
+      {
+        "id": "b2d13138-0ba2-437a-81a0-af59f81ca266",
+        "match": "all",
+        "when": [
+          {
+            "fieldKey": "format",
+            "op": "equals",
+            "value": "Talk"
+          }
+        ],
+        "trackId": "000000tr-0000-4000-8000-000000000001",
+        "order": 1
+      }
+    ],
+    "defaultTrackId": "000000tr-0000-4000-8000-000000000002",
+    "defaultReviewTeamKey": null
+  },
+  "participants": {
+    "collect": true,
+    "roles": [
+      {
+        "key": "speaker",
+        "label": "Speaker",
+        "enabled": true,
+        "min": 1,
+        "max": null
+      },
+      {
+        "key": "co_speaker",
+        "label": "Co-speaker",
+        "enabled": false,
+        "min": 0,
+        "max": null
+      },
+      {
+        "key": "chairperson",
+        "label": "Chairperson",
+        "enabled": false,
+        "min": 0,
+        "max": null
+      },
+      {
+        "key": "moderator",
+        "label": "Moderator",
+        "enabled": false,
+        "min": 0,
+        "max": null
+      },
+      {
+        "key": "panelist",
+        "label": "Panelist",
+        "enabled": false,
+        "min": 0,
+        "max": null
+      }
+    ],
+    "maxTotal": null,
+    "minTotal": null
+  }
+}

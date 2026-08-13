@@ -1,0 +1,30 @@
+{
+  "extends": "./tsconfig.json",
+  // Composite projects must list every file they pull in, so this mirrors the
+  // cloudflare project's `include` and adds the test files on top.
+  "include": [
+    ".react-router/types/**/*",
+    "app/**/*",
+    "worker-configuration.d.ts",
+    "vitest.config.ts"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "strict": true,
+    // Tests run in Node under vitest, not workerd, so they get Node types.
+    // tsconfig.cloudflare.json still compiles app/ WITHOUT them — that project
+    // is what stops Node globals leaking into Worker code.
+    "types": ["node", "vite/client"],
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "rootDirs": [".", "./.react-router/types"],
+    "paths": {
+      "~/*": ["./app/*"]
+    },
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  }
+}

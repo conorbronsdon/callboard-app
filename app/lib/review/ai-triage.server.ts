@@ -1,0 +1,300 @@
+/**
+ * AI triage — the binding + persistence half (ABS-14), advisory only.
+ *
+ * ── What this is not ────────────────────────────────────────────────────────
+ * It is not a review. It never writes a `reviews` row, so it cannot reach
+ * `aggregateFor()`, the abstracts table's aggregate column, the score sort or
+ * the human columns of the reviewer CSV. It never changes a submission's
+ * status. Organizer decisions stay human; the model gets a card and a label.
+ *
+ * ── Provider ────────────────────────────────────────────────────────────────
+ * Cloudflare Workers AI through the native `AI` binding — no external API, no
+ * new secret, nothing for a release operator to rotate. The binding is the
+ * credential. When it is ABSENT (a deployment that dropped the `ai` block, or
+ * any Vitest run, which has no bindings at all) every entry point returns
+ * `{ status: "unavailable" }` and the UI says so out loud.
+ *
+ * ── Failure is stored, not swallowed ────────────────────────────────────────
+ * A 70B instruct model asked for JSON returns JSON *most* of the time. The
+ * remainder is the interesting case: `parseTriageText` never throws, and a
+ * response it cannot read is persisted with `status = "failed"` and the raw
+ * text in `reasoning`. An organizer sees "the model answered, we could not
+ * read it, here is what it said" rather than a spinner that never resolves.
+ *
+ * ── Why there is a sibling ──────────────────────────────────────────────────
+ * The prompt builder, the parser and the tuning constants live in the PURE
+ * `ai-triage.ts` and are re-exported below. React Router hard-refuses to put a
+ * `*.server` module in the client graph, and the abstracts toolbar needs
+ * `AI_TRIAGE_BULK_CAP` in its button copy — a component-level import that
+ * typechecked and BUILT clean and only failed in `vite dev`, as a full-screen
+ * error overlay that ate the e2e run. Callers still import from one place.
+ */
+import { and, eq } from "drizzle-orm";
+
+import type { DB } from "~/db/client.server";
+import { aiTriage } from "~/db/schema";
+import { appEnv } from "~/lib/env.server";
+import {
+  AI_TRIAGE_BULK_CAP,
+  AI_TRIAGE_BULK_CONCURRENCY,
+  AI_TRIAGE_MODEL,
+  SYSTEM_PROMPT,
+  buildTriagePrompt,
+  parseTriageText,
+  textFromAiResponse,
+  type AiTriageRecommendation,
+  type TriageOpinion,
+  type TriageSubmission,
+} from "~/lib/review/ai-triage";
+
+export {
+  AI_TRIAGE_BULK_CAP,
+  AI_TRIAGE_BULK_CONCURRENCY,
+  AI_TRIAGE_MODEL,
+  AI_TRIAGE_RECOMMENDATIONS,
+  AI_TRIAGE_STATUSES,
+  SYSTEM_PROMPT,
+  buildTriagePrompt,
+  parseTriageText,
+  textFromAiResponse,
+  triageBeginMarker,
+  triageEndMarker,
+  triageSentinel,
+  type AiTriageRecommendation,
+  type AiTriageStatus,
+  type TriageOpinion,
+  type TriageParse,
+  type TriageSubmission,
+} from "~/lib/review/ai-triage";
+
+/* ------------------------------------------------------------- the call */
+
+/**
+ * The one method this module needs from the binding. Structural on purpose: a
+ * unit test injects a fake, and a fake that satisfies this satisfies the app.
+ */
+export interface TriageAiBinding {
+  run(model: string, inputs: Record<string, unknown>): Promise<unknown>;
+}
+
+export type TriageOutcome =
+  | { status: "ok"; model: string; opinion: TriageOpinion }
+  | { status: "failed"; model: string; raw: string }
+  | { status: "unavailable" };
+
+/** The binding, or null when this deployment has none. */
+export function triageBinding(): TriageAiBinding | null {
+  const binding = appEnv().AI as unknown;
+  if (!binding || typeof binding !== "object") return null;
+  const run = (binding as { run?: unknown }).run;
+  return typeof run === "function" ? (binding as TriageAiBinding) : null;
+}
+
+export async function requestTriage(
+  ai: TriageAiBinding | null,
+  submission: TriageSubmission,
+): Promise<TriageOutcome> {
+  if (!ai) return { status: "unavailable" };
+
+  let response: unknown;
+  try {
+    response = await ai.run(AI_TRIAGE_MODEL, {
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: buildTriagePrompt(submission) },
+      ],
+      max_tokens: 400,
+      temperature: 0.2,
+    });
+  } catch (error) {
+    // A thrown call is a failed ATTEMPT, not an absent feature: the operator
+    // configured the binding and it errored, and saying "unavailable" here
+    // would hide a broken account behind a message about configuration.
+    return {
+      status: "failed",
+      model: AI_TRIAGE_MODEL,
+      raw: `The model call failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const parsed = parseTriageText(textFromAiResponse(response));
+  return parsed.ok
+    ? { status: "ok", model: AI_TRIAGE_MODEL, opinion: parsed.opinion }
+    : { status: "failed", model: AI_TRIAGE_MODEL, raw: parsed.raw || "The model returned no text." };
+}
+
+/* ------------------------------------------------------------ persistence */
+
+export interface StoredTriage {
+  score: number | null;
+  recommendation: AiTriageRecommendation | null;
+  reasoning: string | null;
+  model: string;
+  status: "ok" | "failed";
+  createdAt: string | null;
+}
+
+/**
+ * Upsert on `session_id`. One opinion per submission: "Run again" replaces the
+ * row rather than stacking a second card the organizer has to date-compare.
+ */
+export async function storeTriageOutcome(
+  db: DB,
+  args: {
+    eventId: string;
+    sessionId: string;
+    requestedById: string | null;
+    outcome: Exclude<TriageOutcome, { status: "unavailable" }>;
+  },
+): Promise<void> {
+  const { eventId, sessionId, requestedById, outcome } = args;
+  const now = new Date();
+  const values =
+    outcome.status === "ok"
+      ? {
+          score: outcome.opinion.score,
+          recommendation: outcome.opinion.recommendation,
+          reasoning: outcome.opinion.reasoning,
+          model: outcome.model,
+          status: "ok" as const,
+        }
+      : {
+          score: null,
+          recommendation: null,
+          reasoning: outcome.raw.slice(0, 1_200),
+          model: outcome.model,
+          status: "failed" as const,
+        };
+
+  await db
+    .insert(aiTriage)
+    .values({
+      id: crypto.randomUUID(),
+      eventId,
+      sessionId,
+      requestedById,
+      ...values,
+    })
+    .onConflictDoUpdate({
+      target: aiTriage.sessionId,
+      set: { ...values, requestedById, updatedAt: now },
+    });
+}
+
+export async function dismissTriage(
+  db: DB,
+  args: { eventId: string; sessionId: string },
+): Promise<void> {
+  await db
+    .delete(aiTriage)
+    .where(and(eq(aiTriage.eventId, args.eventId), eq(aiTriage.sessionId, args.sessionId)));
+}
+
+/** One submission, end to end. Returns the outcome so a caller can count it. */
+export async function triageSubmission(
+  db: DB,
+  args: {
+    eventId: string;
+    sessionId: string;
+    requestedById: string | null;
+    submission: TriageSubmission;
+    ai: TriageAiBinding | null;
+  },
+): Promise<TriageOutcome> {
+  const outcome = await requestTriage(args.ai, args.submission);
+  if (outcome.status === "unavailable") return outcome;
+  await storeTriageOutcome(db, {
+    eventId: args.eventId,
+    sessionId: args.sessionId,
+    requestedById: args.requestedById,
+    outcome,
+  });
+  return outcome;
+}
+
+export interface BulkTriageTarget {
+  sessionId: string;
+  submission: TriageSubmission;
+}
+
+export interface BulkTriageResult {
+  ok: number;
+  failed: number;
+  unavailable: boolean;
+}
+
+/**
+ * Sequential in waves of `AI_TRIAGE_BULK_CONCURRENCY`, capped at
+ * `AI_TRIAGE_BULK_CAP` rows. Both numbers are deliberate: a Worker request has
+ * a wall-clock budget, and fanning twenty inference calls out at once is the
+ * fastest way to turn a demo button into a 500.
+ */
+export async function triageMany(
+  db: DB,
+  args: {
+    eventId: string;
+    requestedById: string | null;
+    targets: readonly BulkTriageTarget[];
+    ai: TriageAiBinding | null;
+    concurrency?: number;
+  },
+): Promise<BulkTriageResult> {
+  if (!args.ai) return { ok: 0, failed: 0, unavailable: true };
+
+  const targets = args.targets.slice(0, AI_TRIAGE_BULK_CAP);
+  const width = Math.max(1, args.concurrency ?? AI_TRIAGE_BULK_CONCURRENCY);
+  let ok = 0;
+  let failed = 0;
+
+  for (let index = 0; index < targets.length; index += width) {
+    const wave = targets.slice(index, index + width);
+    const outcomes = await Promise.all(
+      wave.map((target) =>
+        triageSubmission(db, {
+          eventId: args.eventId,
+          sessionId: target.sessionId,
+          requestedById: args.requestedById,
+          submission: target.submission,
+          ai: args.ai,
+        }),
+      ),
+    );
+    for (const outcome of outcomes) {
+      if (outcome.status === "ok") ok += 1;
+      else if (outcome.status === "failed") failed += 1;
+    }
+  }
+
+  return { ok, failed, unavailable: false };
+}
+
+/* ------------------------------------------------------------------ read */
+
+export async function loadTriage(
+  db: DB,
+  args: { eventId: string; sessionId: string },
+): Promise<StoredTriage | null> {
+  const rows = await db
+    .select({
+      score: aiTriage.score,
+      recommendation: aiTriage.recommendation,
+      reasoning: aiTriage.reasoning,
+      model: aiTriage.model,
+      status: aiTriage.status,
+      createdAt: aiTriage.createdAt,
+    })
+    .from(aiTriage)
+    .where(and(eq(aiTriage.eventId, args.eventId), eq(aiTriage.sessionId, args.sessionId)))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    score: row.score,
+    recommendation: row.recommendation,
+    reasoning: row.reasoning,
+    model: row.model,
+    status: row.status,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+  };
+}
