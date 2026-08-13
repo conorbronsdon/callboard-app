@@ -142,7 +142,7 @@ describe("compose action", () => {
 
     const data = await load("?sent=2&failed=0");
     const html = renderToStaticMarkup(<CommsView {...data} />);
-    expect(html).toContain("Sent 2 of 2");
+    expect(html).toContain("Accepted by mail service: 2 of 2");
     expect(data.counts).toEqual({ total: 2, sent: 2, failed: 0 });
   });
 

@@ -41,9 +41,9 @@ test("organizer previews resolved template copy and bulk-sends it to all speaker
   await compose.getByLabel("Subject").fill(subject);
   await compose.getByRole("button", { name: "Send emails" }).click();
   await expect(page).toHaveURL(new RegExp(`/admin/comms\\?sent=${selectedCount}&failed=0$`));
-  await expect(page.getByText(`Sent ${selectedCount} of ${selectedCount}.`)).toBeVisible();
+  await expect(page.getByText(`Accepted by mail service: ${selectedCount} of ${selectedCount}.`)).toBeVisible();
 
   const sentRows = page.getByTestId("comm-row").filter({ hasText: subject });
   await expect(sentRows).toHaveCount(selectedCount);
-  await expect(sentRows.first()).toContainText("sent");
+  await expect(sentRows.first()).toContainText("Accepted by mail service");
 });

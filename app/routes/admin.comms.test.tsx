@@ -119,6 +119,18 @@ describe("seeded state", () => {
     expect(html).toContain("Task reminder");
   });
 
+  it("MUST-FIRE / MUST-NOT-FIRE: labels accepted mail honestly while failed mail stays failed", async () => {
+    const data = await load();
+    const html = renderToStaticMarkup(<CommsView {...data} />);
+
+    expect(html).toContain("Accepted by mail service");
+    expect(html).toContain("1 accepted by mail service");
+    expect(html).not.toContain(">sent</span>");
+    expect(html).not.toContain(" sent ·");
+    expect(html).toContain(">failed</span>");
+    expect(data.rows.map((row) => row.status).sort()).toEqual(["failed", "sent"]);
+  });
+
   it("shows the ICS method and sequence on a calendar send", async () => {
     const data = await load();
     const invite = data.rows.find((row) => row.templateKey === "schedule_invite");
@@ -150,7 +162,9 @@ describe("seeded state", () => {
     expect(data.rows).toEqual([]);
 
     const html = renderToStaticMarkup(<CommsView {...data} />);
-    expect(html).toContain("Nothing has been sent to this speaker yet.");
+    expect(html).toContain(
+      "No messages have been accepted by the mail service for this speaker yet.",
+    );
   });
 
   it("renders a row per message with the table headings", async () => {

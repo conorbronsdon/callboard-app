@@ -5,6 +5,7 @@
  * sentence) is identical on every step, so it is built once here rather than
  * three times in three routes that could drift apart.
  */
+import { sanitizeAdminCopy } from "./copy.server";
 import { loadSubmitContext, type DraftView, type SubmitContext } from "./draft.server";
 import {
   closeDateSentence,
@@ -27,6 +28,7 @@ export interface WizardView {
     target: string;
     welcomeTitle: string | null;
     welcomeBody: string | null;
+    welcomeBodyHtml: string | null;
     /** Section title + intro for the step being rendered (WS1a StepCopy). */
     sectionTitle: string;
     sectionBody: string;
@@ -66,6 +68,9 @@ export function buildView(context: SubmitContext, requestedStep: string | undefi
       : step === "submission"
         ? settings.abstract
         : settings.welcome;
+  const welcomeCopy = sanitizeAdminCopy(
+    context.form.welcomeBody ?? settings.welcome.body ?? null,
+  );
 
   return {
     event: {
@@ -78,7 +83,8 @@ export function buildView(context: SubmitContext, requestedStep: string | undefi
       name: context.form.name,
       target: context.form.target,
       welcomeTitle: context.form.welcomeTitle ?? settings.welcome.title ?? null,
-      welcomeBody: context.form.welcomeBody ?? settings.welcome.body ?? null,
+      welcomeBody: welcomeCopy.plainText,
+      welcomeBodyHtml: welcomeCopy.sanitizedHtml,
       sectionTitle: copy.title,
       sectionBody: copy.body,
       successMessage: context.form.thankYouBody ?? settings.successMessage,

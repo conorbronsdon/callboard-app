@@ -34,10 +34,11 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { Link, redirect, useNavigate } from "react-router";
 
 import { buttonClass } from "~/components/portal-ui";
-import { NoticeShell, RichText } from "~/components/submit/shell";
+import { NoticeShell, SanitizedRichText } from "~/components/submit/shell";
 import { getDb } from "~/db/client.server";
 import { sessionParticipants, sessions } from "~/db/schema";
 import { getCurrentPerson } from "~/lib/auth/auth.server";
+import { sanitizeAdminCopy } from "~/lib/public-submit/copy.server";
 import { loadSubmitContext } from "~/lib/public-submit/draft.server";
 import type { Route } from "./+types/public.submit.success";
 
@@ -90,14 +91,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (!row) throw redirect(`/submit/${context.event.slug}/${context.form.id}`);
 
   const submission = { friendlyId: row.friendlyId, title: row.title };
+  const successCopy = sanitizeAdminCopy(
+    context.form.thankYouBody ?? context.def.settings.successMessage ?? null,
+  );
 
   return {
     event: { name: context.event.name, slug: context.event.slug },
     form: {
       id: context.form.id,
       name: context.form.name,
-      successMessage:
-        context.form.thankYouBody ?? context.def.settings.successMessage ?? null,
+      successMessage: successCopy.plainText,
+      successMessageHtml: successCopy.sanitizedHtml,
     },
     submission,
     /**
@@ -137,8 +141,11 @@ export default function SubmitSuccess({ loaderData }: Route.ComponentProps) {
       ) : null}
 
       <div className="mb-6 space-y-3 text-sm text-gray-600 dark:text-gray-300">
-        {form.successMessage ? (
-          <RichText body={form.successMessage} />
+        {form.successMessage || form.successMessageHtml ? (
+          <SanitizedRichText
+            body={form.successMessage}
+            sanitizedHtml={form.successMessageHtml}
+          />
         ) : (
           <p>
             You will receive a confirmation email shortly with a link to your speaker

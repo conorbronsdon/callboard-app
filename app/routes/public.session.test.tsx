@@ -85,9 +85,15 @@ describe("public session detail", () => {
       "Demo Speaker",
       "Company 0",
       "Add to calendar (.ics)",
+      "Google Calendar",
+      "Outlook",
     ]) {
       expect(markup).toContain(text);
     }
+    expect(data.calendarLinks.google).toMatch(/^https:\/\/calendar\.google\.com\/calendar\/render\?/);
+    expect(data.calendarLinks.outlook).toMatch(/^https:\/\/outlook\.live\.com\/calendar\/0\/action\/compose\?/);
+    expect(markup).toContain(`href="${data.calendarLinks.google.replace(/&/g, "&amp;")}"`);
+    expect(markup).toContain(`href="${data.calendarLinks.outlook.replace(/&/g, "&amp;")}"`);
     expect(markup).toContain(`data-public-session-detail="${fixture.programSessionIds[0]}"`);
   });
 

@@ -57,10 +57,10 @@ const successArgs = (request: Request) =>
   }) as unknown as LoaderArgs;
 
 /** Put a distinctive success message on the CFP form, plus the redirect toggle. */
-async function configureForm(autoRedirect: boolean) {
+async function configureForm(autoRedirect: boolean, message = MESSAGE) {
   const form = await ctx.db.query.forms.findFirst({ where: eq(forms.id, CFP_FORM_ID) });
   const settings = { ...((form!.settings ?? {}) as Record<string, unknown>) };
-  settings.successMessage = MESSAGE;
+  settings.successMessage = message;
   settings.autoRedirectToPortal = autoRedirect;
   await ctx.db
     .update(forms)
@@ -103,6 +103,22 @@ describe("the confirmation actually confirms", () => {
     const html = render(data);
     expect(html).toContain("The programme committee meets on the 3rd");
     expect(html).toContain("Continue to portal");
+  });
+
+  it("MUST FIRE / MUST NOT FIRE: sanitizes unsafe success copy and preserves safe formatting", async () => {
+    const message =
+      '<p onclick="steal()">Thanks, <strong>speaker</strong>.</p>' +
+      '<script>steal()</script><a href="https://example.com/next">What happens next</a>';
+    await configureForm(true, message);
+    const sessionId = await ownSubmission();
+    const request = await signedInGet(successUrl(sessionId), fixture.speakerIds[0]);
+
+    const html = render(await loader(successArgs(request)));
+    expect(html).not.toContain("onclick");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("steal()");
+    expect(html).toContain("<strong>speaker</strong>");
+    expect(html).toContain('href="https://example.com/next"');
   });
 
   it("must fire: the submission the receipt names is the one that was submitted", async () => {

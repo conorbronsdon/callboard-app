@@ -14,6 +14,7 @@ import {
   tracks,
 } from "~/db/schema";
 import { dayKeyOf, formatDayLabel } from "~/lib/agenda/schedule";
+import { buildCalendarDeeplinks } from "~/lib/calendar-deeplinks";
 import {
   parseScheduleFilter,
   scheduleFilterQuery,
@@ -94,12 +95,19 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     event: { name: event.name, slug: event.slug, timezone: event.timezone },
     slot,
     dayLabel: formatDayLabel(day, event.timezone),
+    calendarLinks: buildCalendarDeeplinks({
+      title: row.title,
+      description: row.description,
+      location: row.roomName,
+      start: row.startsAt,
+      end: row.endsAt,
+    }),
     backHref: `/e/${event.slug}/schedule${safeQuery ? `?${safeQuery}` : ""}#public-session-${row.id}`,
   };
 }
 
 export default function PublicSession({ loaderData }: Route.ComponentProps) {
-  const { event, slot, dayLabel, backHref } = loaderData;
+  const { event, slot, dayLabel, calendarLinks, backHref } = loaderData;
   return (
     <Shell
       title={slot.title}
@@ -129,6 +137,12 @@ export default function PublicSession({ loaderData }: Route.ComponentProps) {
         <div className="mt-6 flex flex-wrap items-center gap-4">
           <a className={linkClass} href={`/e/${event.slug}/schedule.ics?s=${encodeURIComponent(slot.id)}`}>
             Add to calendar (.ics)
+          </a>
+          <a className={linkClass} href={calendarLinks.google}>
+            Google Calendar
+          </a>
+          <a className={linkClass} href={calendarLinks.outlook}>
+            Outlook
           </a>
           <Link className={linkClass} to={backHref}>
             ← Back to schedule

@@ -146,15 +146,14 @@ export function LimitReachedNotice({
   );
 }
 
-/**
- * Admin-authored welcome copy. Rendered as text paragraphs, NOT raw HTML —
- * server-side sanitising of admin rich text is WS3's module (DECISIONS #12) and
- * the public CFP page is the wrong place to open an unsanitised HTML sink.
- */
+/** Escaped paragraph fallback for admin copy that contains no markup. */
+const richTextClass =
+  "space-y-3 text-sm leading-relaxed text-gray-600 dark:text-gray-300";
+
 export function RichText({ body }: { body: string | null }) {
   if (!body?.trim()) return null;
   return (
-    <div className="space-y-3 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
+    <div className={richTextClass}>
       {body
         .split(/\n{2,}/)
         .map((paragraph) => paragraph.trim())
@@ -164,4 +163,23 @@ export function RichText({ body }: { body: string | null }) {
         ))}
     </div>
   );
+}
+
+/** Render only HTML that a server loader has already passed through the allowlist. */
+export function SanitizedRichText({
+  body,
+  sanitizedHtml,
+}: {
+  body: string | null;
+  sanitizedHtml: string | null;
+}) {
+  if (sanitizedHtml) {
+    return (
+      <div
+        className={richTextClass}
+        dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+      />
+    );
+  }
+  return <RichText body={body} />;
 }

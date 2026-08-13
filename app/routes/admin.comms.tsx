@@ -309,6 +309,7 @@ const BUTTON = buttonClass("primary");
 
 function StatusPill({ status }: { status: string }) {
   const failed = status === "failed" || status === "bounced";
+  const label = status === "sent" ? "Accepted by mail service" : status;
   return (
     <span
       data-testid={`comm-status-${status}`}
@@ -320,7 +321,7 @@ function StatusPill({ status }: { status: string }) {
             : "rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 ring-1 ring-gray-500/20 ring-inset dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-400/30"
       }
     >
-      {status}
+      {label}
     </span>
   );
 }
@@ -396,7 +397,7 @@ function ComposePanel({
         <div className="space-y-5">
           {compose.sent !== null && compose.failed !== null ? (
             <Notice tone={compose.failed ? "info" : "success"}>
-              Sent {compose.sent} of {compose.sent + compose.failed}.
+              Accepted by mail service: {compose.sent} of {compose.sent + compose.failed}.
               {compose.failed ? ` ${compose.failed} failed; see the history below.` : ""}
             </Notice>
           ) : null}
@@ -626,7 +627,7 @@ export function CommsView(data: CommsData & { actionData?: CommsActionData }) {
         </h2>
         <p className="text-sm text-gray-500" data-testid="comms-counts">
           {data.counts.total} message{data.counts.total === 1 ? "" : "s"} · {data.counts.sent}{" "}
-          sent · {data.counts.failed} failed
+          accepted by mail service · {data.counts.failed} failed
         </p>
       </div>
 
@@ -671,8 +672,8 @@ export function CommsView(data: CommsData & { actionData?: CommsActionData }) {
         <div className={CARD} data-testid="comms-zero">
           <p className="text-sm text-gray-500">
             {data.personId
-              ? "Nothing has been sent to this speaker yet."
-              : "Nothing has been sent for this event yet. Schedule a published session, or run the task-reminders job from Jobs."}
+              ? "No messages have been accepted by the mail service for this speaker yet."
+              : "No messages have been accepted by the mail service for this event yet. Schedule a published session, or run the task-reminders job from Jobs."}
           </p>
         </div>
       ) : (

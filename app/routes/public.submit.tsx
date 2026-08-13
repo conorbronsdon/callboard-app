@@ -11,7 +11,7 @@
  */
 import { Link } from "react-router";
 
-import { ClosedNotice, RichText, WizardShell } from "~/components/submit/shell";
+import { ClosedNotice, SanitizedRichText, WizardShell } from "~/components/submit/shell";
 import { WizardFooter } from "~/components/submit/stepper";
 import { loadWizardView } from "~/lib/public-submit/view.server";
 import { stepPath } from "~/lib/public-submit/wizard";
@@ -66,7 +66,10 @@ export default function PublicSubmitWelcome({ loaderData }: Route.ComponentProps
       <h2 className="mb-4 text-2xl font-semibold" data-testid="welcome-title">
         {view.form.welcomeTitle ?? view.form.name}
       </h2>
-      <RichText body={view.form.welcomeBody} />
+      <SanitizedRichText
+        body={view.form.welcomeBody}
+        sanitizedHtml={view.form.welcomeBodyHtml}
+      />
 
       {view.limit.reached ? (
         <p
