@@ -11,6 +11,7 @@ import {
   rubricMaxTotal,
   rubricSpanTotal,
   rubricWeightTotal,
+  weightedAggregateByRound,
   weightedAggregateFor,
 } from "./aggregate";
 import { scoreRubric, type Rubric } from "./scoring";
@@ -364,6 +365,47 @@ const submitted = (roundId: string, totalScore: number | null, extra = {}) => ({
 });
 
 describe("weighted aggregate (the number the detail page prints)", () => {
+  it("MUST FIRE: per-round values stay in weighted points rather than criterion averages", () => {
+    const rubricByRound = new Map([
+      [ROUND_ONE, WEIGHTED_RUBRIC],
+      [ROUND_TWO, WEIGHTED_RUBRIC],
+    ]);
+    const rows = [
+      submitted(ROUND_ONE, 12),
+      submitted(ROUND_ONE, 6),
+      submitted(ROUND_TWO, 15),
+    ];
+
+    expect(aggregateByRound(rows, rubricByRound).get(ROUND_ONE)?.average).toBe(3);
+    expect(weightedAggregateByRound(rows, rubricByRound)).toEqual(
+      new Map([
+        [ROUND_ONE, { average: 9, max: 15 }],
+        [ROUND_TWO, { average: 15, max: 15 }],
+      ]),
+    );
+  });
+
+  it("MUST NOT FIRE: per-round weighting excludes recusals, drafts and foreign rounds", () => {
+    const rubricByRound = new Map([
+      [ROUND_ONE, WEIGHTED_RUBRIC],
+      [ROUND_TWO, WEIGHTED_RUBRIC],
+    ]);
+    const rows = [
+      submitted(ROUND_ONE, 9),
+      submitted(ROUND_ONE, 15, { recusedAt: new Date("2026-08-12T12:01:00Z") }),
+      { roundId: ROUND_ONE, totalScore: 15, submittedAt: null, recusedAt: null },
+      submitted("foreign-round", 15),
+      submitted(ROUND_TWO, null),
+    ];
+
+    expect(weightedAggregateByRound(rows, rubricByRound)).toEqual(
+      new Map([
+        [ROUND_ONE, { average: 9, max: 15 }],
+        [ROUND_TWO, { average: null, max: null }],
+      ]),
+    );
+  });
+
   it("MUST FIRE: averages the reviewers' weighted totals over the rubric's own maximum", () => {
     const rubricByRound = new Map([[ROUND_ONE, WEIGHTED_RUBRIC]]);
 

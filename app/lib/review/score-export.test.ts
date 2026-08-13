@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CSV_EOL } from "~/lib/integrations/accelevents-csv";
-import { aggregateFor } from "./aggregate";
+import { weightedAggregateByRound, weightedAggregateFor } from "./aggregate";
 import { buildScoreCsv, type ScoreExportRound, type ScoreExportSubmission } from "./score-export";
 import type { Rubric } from "./scoring";
 
@@ -83,7 +83,7 @@ describe("review score CSV", () => {
       // Trailing empties: Final, Reviewer comments (CFP-11), and the two
       // advisory AI columns (ABS-14). This submission has no triage row, and a
       // human column must never borrow one of the advisory fields.
-      'ABS-1,"Taming 40-Minute CI, the ""fast"" way",Agents,Pending,1,3.33,3.33,,,,',
+      'ABS-1,"Taming 40-Minute CI, the ""fast"" way",Agents,Pending,1,10.0 / 15,10.0 / 15,,,,',
     );
     expect(parseCsv(csv)).toHaveLength(2);
     expect(parseCsv(csv)[1][1]).toBe(title);
@@ -98,11 +98,13 @@ describe("review score CSV", () => {
     expect(records[1][1]).toBe(title);
   });
 
-  it("must fire: round columns and overall aggregate share the aggregate arithmetic", () => {
+  it("must fire: round columns and overall aggregate share the weighted arithmetic", () => {
     const reviews = [submitted("round-one", 12), submitted("round-two", 15)];
     const csv = buildScoreCsv([submission("Round trip", reviews)], ROUNDS);
     const records = parseCsv(csv);
-    const expected = aggregateFor(reviews, new Map(ROUNDS.map((round) => [round.id, round.rubric])));
+    const rubricByRound = new Map(ROUNDS.map((round) => [round.id, round.rubric]));
+    const expected = weightedAggregateFor(reviews, rubricByRound);
+    const expectedByRound = weightedAggregateByRound(reviews, rubricByRound);
 
     expect(records[0]).toEqual([
       "ID",
@@ -110,7 +112,7 @@ describe("review score CSV", () => {
       "Track",
       "Status",
       "Reviews",
-      "Aggregate score",
+      "Aggregate score (weighted avg / max)",
       "Screening",
       "Final",
       "Reviewer comments",
@@ -119,15 +121,40 @@ describe("review score CSV", () => {
     ]);
     expect(records[1].slice(4)).toEqual([
       "2",
-      expected.average?.toFixed(2),
-      "4.00",
-      "5.00",
+      `${expected.average?.toFixed(1)} / ${expected.max}`,
+      `${expectedByRound.get("round-one")?.average?.toFixed(1)} / ${expectedByRound.get("round-one")?.max}`,
+      `${expectedByRound.get("round-two")?.average?.toFixed(1)} / ${expectedByRound.get("round-two")?.max}`,
       // Reviewer comments, then must-not-fire: no `aiTriage` on this
       // submission, so the advisory pair stays blank rather than inheriting a
       // human number.
       "",
       "",
       "",
+    ]);
+  });
+
+  it("must NOT fire: mixed rubric maxima fall back to a labelled criterion average", () => {
+    const rounds: ScoreExportRound[] = [
+      ROUNDS[0],
+      {
+        id: "round-two",
+        name: "Final",
+        rubric: {
+          criteria: [
+            { key: "clarity", label: "Clarity", min: 1, max: 5, weight: 1 },
+            { key: "depth", label: "Depth", min: 1, max: 5, weight: 1 },
+          ],
+        },
+      },
+    ];
+    const reviews = [submitted("round-one", 12), submitted("round-two", 8)];
+    const record = parseCsv(buildScoreCsv([submission("Mixed maxima", reviews)], rounds))[1];
+
+    expect(record.slice(4, 8)).toEqual([
+      "2",
+      "4.00 avg",
+      "12.0 / 15",
+      "8.0 / 10",
     ]);
   });
 

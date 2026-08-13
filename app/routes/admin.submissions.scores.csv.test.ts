@@ -61,10 +61,12 @@ describe("admin review score CSV route", () => {
     expect(lines[0]).toBe(
       // Human columns first, in order, and the two ABS-14 advisory columns
       // LAST — the ordering the CSV's separation guarantee depends on.
-      "ID,Title,Track,Status,Reviews,Aggregate score,Screening,Reviewer comments," +
+      "ID,Title,Track,Status,Reviews,Aggregate score (weighted avg / max),Screening,Reviewer comments," +
         "AI triage score (advisory),AI triage recommendation (advisory)",
     );
-    expect(lines.find((line) => line.startsWith("ABS-4,"))).toContain(",1,3.33,3.33");
+    expect(lines.find((line) => line.startsWith("ABS-4,"))).toContain(
+      ",1,10.0 / 15,10.0 / 15",
+    );
   });
 
   /* ------------------------------------------- CFP-11: comments in export */

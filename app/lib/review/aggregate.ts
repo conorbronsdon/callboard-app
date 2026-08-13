@@ -209,6 +209,29 @@ export function weightedAggregateFor(
   return count === 0 || max === null ? NO_WEIGHTED : { average: total / count, max };
 }
 
+/**
+ * Keep each round in the numerator and denominator its rubric defines.
+ * Grouping first prevents a mixed-max submission from erasing the honest
+ * per-round readings that still have a shared scale within their own column.
+ */
+export function weightedAggregateByRound(
+  reviews: readonly AggregateReview[],
+  rubricByRound: ReadonlyMap<string, Rubric>,
+): Map<string, WeightedAggregate> {
+  const reviewsByRound = new Map<string, AggregateReview[]>();
+  for (const roundId of rubricByRound.keys()) reviewsByRound.set(roundId, []);
+  for (const review of reviews) {
+    const list = reviewsByRound.get(review.roundId);
+    if (list) list.push(review);
+  }
+  return new Map(
+    [...reviewsByRound].map(([roundId, roundReviews]) => [
+      roundId,
+      weightedAggregateFor(roundReviews, rubricByRound),
+    ]),
+  );
+}
+
 /* ----------------------------------------------------- disagreement */
 
 /**

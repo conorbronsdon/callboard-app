@@ -169,9 +169,14 @@ describe("session webhook write paths", () => {
   });
 
   it("session.published MUST FIRE and session.updated MUST NOT FIRE for the same API write", async () => {
+    // A scheduled time is a publish precondition (DECISIONS #70, mirroring
+    // admin's `set-published`), so this session needs one before the publish
+    // attempt below can reach the webhook emission at all.
     const created = await createSession(fixture.eventId, {
       title: "Publish through v1 seam",
       isAbstract: false,
+      startsAt: new Date("2036-01-01T10:00:00.000Z"),
+      endsAt: new Date("2036-01-01T10:30:00.000Z"),
     });
     if (!created.ok) throw new Error(created.error.message);
     await clearDeliveries();
@@ -187,6 +192,64 @@ describe("session webhook write paths", () => {
     const rows = await deliveryRows();
     expect(rows).toMatchObject([{ event: "session.published", resourceId: created.value.id }]);
     expect(rows.some((row) => row.event === "session.updated")).toBe(false);
+  });
+
+  /**
+   * The blocking-conflict gate (DECISIONS #70) refuses the write itself, and
+   * `emitWebhook` sits after the DB write inside `updateSession` — so a
+   * refusal never reaches it. This pins that composition directly rather than
+   * inferring it from control flow: a gate that moved above the write by
+   * accident would still read correctly here.
+   */
+  async function addOverlappingSpeakerPair(): Promise<{ first: string; second: string }> {
+    const overlapStart = new Date("2036-02-01T16:00:00.000Z");
+    const overlapEnd = new Date("2036-02-01T17:00:00.000Z");
+    const make = async (suffix: string, roomIndex: number) => {
+      const id = `webhook-clash-${suffix}`;
+      await ctx.db.insert(sessions).values({
+        id,
+        eventId: fixture.eventId,
+        friendlyId: `WHC-${suffix}`,
+        title: `Webhook clash ${suffix}`,
+        status: "accepted",
+        isAbstract: false,
+        roomId: fixture.roomIds[roomIndex],
+        startsAt: overlapStart,
+        endsAt: overlapEnd,
+        isPublic: false,
+        speakerInformedAt: new Date(),
+      });
+      await ctx.db.insert(sessionParticipants).values({
+        sessionId: id,
+        personId: fixture.speakerIds[0],
+        role: "speaker",
+        isPrimary: true,
+      });
+      return id;
+    };
+    return { first: await make("a", 0), second: await make("b", 1) };
+  }
+
+  it("MUST NOT FIRE: a publish refused by the blocking-conflict gate emits no webhook", async () => {
+    const { first } = await addOverlappingSpeakerPair();
+    await clearDeliveries();
+
+    const result = await updateSession(fixture.eventId, first, { isPublic: true }, null, false, false);
+    expect(result.ok).toBe(false);
+
+    expect(await deliveryRows()).toEqual([]);
+  });
+
+  it("MUST FIRE (complement): the same clash, forced, still emits session.published", async () => {
+    const { first } = await addOverlappingSpeakerPair();
+    await clearDeliveries();
+
+    const result = await updateSession(fixture.eventId, first, { isPublic: true }, null, false, true);
+    expect(result.ok).toBe(true);
+
+    expect(await deliveryRows()).toMatchObject([
+      { event: "session.published", resourceId: first },
+    ]);
   });
 });
 

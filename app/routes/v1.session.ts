@@ -44,6 +44,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       parsed.values,
       parsed.expectedUpdatedAt,
       parsed.publishOverride,
+      parsed.publishForce,
     );
     if (!updated.ok) {
       const { code, message } = updated.error;

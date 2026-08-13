@@ -214,9 +214,8 @@ export default function PublicHome({ loaderData }: Route.ComponentProps) {
             </p>
           </div>
           {/*
-           * Three across from `lg`, not two. A card carries four short lines;
-           * at 1280px a two-column grid gave each one 600px of width for a
-           * 40-character event name and left the right half of the page empty.
+           * Two events stay two-up; the third desktop track appears only when
+           * there are enough cards to fill it. A one-event board stays one-up.
            *
            * `shadow-card` rests rather than arriving on hover. This card was
            * the ONLY `hover:shadow-card` in the product — every other lifted
@@ -224,7 +223,11 @@ export default function PublicHome({ loaderData }: Route.ComponentProps) {
            * and a card that becomes an object only while a pointer is over it
            * is a card that never becomes one on a touch screen.
            */}
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul
+            className={`grid gap-4${events.length >= 2 ? " sm:grid-cols-2" : ""}${
+              events.length >= 3 ? " lg:grid-cols-3" : ""
+            }`}
+          >
             {events.map((event) => (
               <li
                 key={event.id}

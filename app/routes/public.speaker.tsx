@@ -95,15 +95,16 @@ export default function PublicSpeaker({ loaderData }: Route.ComponentProps) {
 
   return (
     <Shell
-      title={event.name}
+      title={speaker.displayName}
       titleSize="display"
+      subtitle={event.name}
       nav={[
         { to: `/e/${event.slug}`, label: "Overview", end: true },
         { to: `/e/${event.slug}/schedule`, label: "Schedule" },
         { to: `/e/${event.slug}/speakers`, label: "Speakers" },
       ]}
     >
-      <div data-speaker-detail={speaker.id} className="space-y-6">
+      <div data-speaker-detail={speaker.id} className="max-w-3xl space-y-6">
         <Link
           to={back.href}
           data-speaker-back={back.view}

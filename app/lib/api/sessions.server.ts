@@ -17,7 +17,10 @@
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { getDb } from "~/db/client.server";
+import { blockingConflicts, conflictLabel } from "~/lib/agenda/conflicts";
 import { isSessionInformed } from "~/lib/agenda/informed-gate.server";
+import { predictConflicts } from "~/lib/agenda/predict";
+import { loadProgramme } from "~/lib/agenda/programme.server";
 import { emitWebhook } from "~/lib/webhooks/webhooks.server";
 import {
   formats,
@@ -515,6 +518,7 @@ export type ParseResult =
       values: SessionWriteValues;
       expectedUpdatedAt: number | null;
       publishOverride: boolean;
+      publishForce: boolean;
     }
   | { ok: false; message: string };
 
@@ -731,12 +735,23 @@ export function parseSessionBody(raw: unknown, mode: "create" | "update"): Parse
   if (publishOverride === null) {
     return { ok: false, message: "`publish_override` must be a boolean." };
   }
+  const publishForceRaw = pick(input, "publishForce", "publish_force");
+  if (mode === "create" && ("publishForce" in input || "publish_force" in input)) {
+    return { ok: false, message: "`publish_force` is accepted only on update." };
+  }
+  const publishForce = publishForceRaw === undefined
+    ? false
+    : asBoolean(publishForceRaw);
+  if (publishForce === null) {
+    return { ok: false, message: "`publish_force` must be a boolean." };
+  }
 
   return {
     ok: true,
     values,
     expectedUpdatedAt: mode === "update" ? expected : null,
     publishOverride,
+    publishForce,
   };
 }
 
@@ -832,6 +847,7 @@ export async function updateSession(
   values: SessionWriteValues,
   expectedUpdatedAt: number | null,
   publishOverride = false,
+  publishForce = false,
 ): Promise<WriteResult<SessionInput>> {
   const db = getDb();
   const existing = await db.query.sessions.findFirst({
@@ -863,9 +879,26 @@ export async function updateSession(
     };
   }
 
+  const isPublishing = values.isPublic === true && !existing.isPublic;
+  // Explicit nulls are writes, not omissions. Resolve the proposed row with an
+  // undefined check so clearing a placement cannot borrow the stored value and
+  // pass a pre-write gate for a state that will not exist after the update.
+  const finalStartsAt = values.startsAt === undefined ? existing.startsAt : values.startsAt;
+  const finalEndsAt = values.endsAt === undefined ? existing.endsAt : values.endsAt;
+  const finalRoomId = values.roomId === undefined ? existing.roomId : values.roomId;
+
+  if (isPublishing && !finalStartsAt) {
+    return {
+      ok: false,
+      error: {
+        code: "validation",
+        message: "Give the session a time before publishing it.",
+      },
+    };
+  }
+
   if (
-    values.isPublic === true &&
-    !existing.isPublic &&
+    isPublishing &&
     !publishOverride &&
     !(await isSessionInformed(db, sessionId))
   ) {
@@ -877,6 +910,31 @@ export async function updateSession(
           "The speaker hasn't been told about this session yet. Send their decision letter, or pass `publish_override: true`.",
       },
     };
+  }
+
+  if (isPublishing && !publishForce && finalStartsAt && finalEndsAt) {
+    const programme = await loadProgramme(eventId);
+    const roomName = finalRoomId
+      ? programme.rooms.find((room) => room.id === finalRoomId)?.name ?? null
+      : null;
+    const conflicts = blockingConflicts(
+      predictConflicts(programme.sessions, {
+        sessionId,
+        roomId: finalRoomId,
+        roomName,
+        startsAt: finalStartsAt.getTime(),
+        endsAt: finalEndsAt.getTime(),
+      }),
+    );
+    if (conflicts.length > 0) {
+      return {
+        ok: false,
+        error: {
+          code: "conflict",
+          message: `Publishing would create: ${conflicts.map(conflictLabel).join("; ")}. Resolve the conflict, or pass \`publish_force: true\`.`,
+        },
+      };
+    }
   }
 
   const patch: Record<string, unknown> = {};
@@ -1069,6 +1127,7 @@ export async function bulkSessions(
         parsed.values,
         parsed.expectedUpdatedAt,
         parsed.publishOverride,
+        parsed.publishForce,
       );
       if (updated.ok) {
         results.push({ index, action, status: "success", id: updated.value.id });

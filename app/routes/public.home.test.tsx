@@ -18,7 +18,7 @@ import { createRoutesStub } from "react-router";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { forms } from "~/db/schema";
+import { events, forms } from "~/db/schema";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { EVENT_ID, EVENT_SLUG, seedDemoFixture } from "~/test/fixtures";
 
@@ -112,10 +112,27 @@ describe("open-call count on the event card", () => {
   });
 });
 
-describe("the card grid opens to three columns", () => {
-  it("keeps the two-up phone/tablet steps and adds lg", async () => {
-    // Rung 3 continuation, not a redesign: `sm:grid-cols-2` is unchanged and
-    // `lg:grid-cols-3` is added, so nothing below 1024px moves.
+describe("the card grid scales its columns to how many events there are", () => {
+  it("MUST NOT FIRE: a single event does not request columns it cannot fill", async () => {
+    // The fixture seeds exactly one event. Unconditionally requesting
+    // sm:grid-cols-2 and lg:grid-cols-3 here left two dead, empty columns
+    // beside the lone card on any screen sm and up.
+    const markup = await homeMarkup();
+    expect(markup).toContain('class="grid gap-4"');
+    expect(markup).not.toContain("sm:grid-cols-2");
+    expect(markup).not.toContain("lg:grid-cols-3");
+  });
+
+  it("two events add the sm two-up step, but not lg", async () => {
+    await ctx.db.insert(events).values({ name: "Second Conference", slug: "second-conference" });
+    const markup = await homeMarkup();
+    expect(markup).toContain('class="grid gap-4 sm:grid-cols-2"');
+    expect(markup).not.toContain("lg:grid-cols-3");
+  });
+
+  it("MUST FIRE: three or more events add the lg three-up step", async () => {
+    await ctx.db.insert(events).values({ name: "Second Conference", slug: "second-conference" });
+    await ctx.db.insert(events).values({ name: "Third Conference", slug: "third-conference" });
     expect(await homeMarkup()).toContain("grid gap-4 sm:grid-cols-2 lg:grid-cols-3");
   });
 

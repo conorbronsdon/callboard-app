@@ -128,7 +128,7 @@ export const API_OPERATIONS: ApiOperation[] = [
     operationId: "updateSession",
     summary: "Update a session",
     description:
-      "Partial update. Send the `updated_at` you last read to get optimistic concurrency: a `409` means somebody else wrote first. Omit it to force the write. Flipping `is_public` true requires the speaker's decision letter to have been sent, or `publish_override: true`.",
+      "Partial update. Send the `updated_at` you last read to get optimistic concurrency: a `409` means somebody else wrote first. Omit it to force the write. Flipping `is_public` true requires a scheduled time and the speaker's decision letter to have been sent, or `publish_override: true`. Publication is also refused when the final placement would create a blocking room or speaker conflict, unless `publish_force: true` is sent.",
     scope: "write:sessions",
     requestExample: { status: "accepted", updated_at: "2026-08-06T12:00:00.000Z" },
     responseExample: SESSION_EXAMPLE,

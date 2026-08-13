@@ -850,6 +850,7 @@ COMPOSED.forEach((abstractIndex, n) => {
     capacity: n === 0 ? 800 : 120,
     is_public: bool(true),
     published_at: NOW,
+    speaker_informed_at: NOW,
     created_at: NOW,
     updated_at: NOW,
   });
@@ -883,6 +884,8 @@ COMPOSED.forEach((abstractIndex, n) => {
  * invited programme rows never passed through the CFP. Two accepted rows are
  * deliberately left unscheduled: the agenda tray and auto-placement workflow
  * need real work waiting in them when the demo opens.
+ * SESS-10 is also deliberately left without `speaker_informed_at`: assigning
+ * it a slot and trying to publish it demonstrates the speaker-notification hold.
  *
  * Invited sessions sp5/sp6/sp7/sp8/sp9/sp11 use personIndex 7/8/9/10/11/12.
  * Abstracts 0-4 use the fixed indices 0/1 and generator indices 2/4/3/5/6, so
@@ -2088,6 +2091,7 @@ EVENT2_PROGRAMME.forEach(([abstractIndex, roomIndex, hourOffset], index) => {
     capacity: EVENT2_ROOMS[roomIndex][1],
     is_public: bool(true),
     published_at: EVENT2_NOW,
+    speaker_informed_at: EVENT2_NOW,
     created_at: EVENT2_NOW,
     updated_at: EVENT2_NOW,
   });

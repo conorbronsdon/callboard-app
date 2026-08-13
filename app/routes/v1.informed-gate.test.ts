@@ -19,6 +19,7 @@ import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
 import { action as createAction } from "./v1.sessions.create";
+import { action as bulkAction } from "./v1.sessions.bulk";
 import { action as sessionAction } from "./v1.session";
 
 let ctx: TestDbContext;
@@ -82,10 +83,23 @@ const eventPath = (suffix = "") => `/v1/event/${fixture.eventId}${suffix}`;
 
 let counter = 0;
 
-/** A scheduled, unpublished programme session composed from an abstract. */
-async function addProgrammeSession(informed: boolean): Promise<string> {
+interface ProgrammeSessionOptions {
+  startsAt?: Date | null;
+  endsAt?: Date | null;
+  personId?: string;
+  roomId?: string | null;
+  trackId?: string | null;
+  isPublic?: boolean;
+}
+
+/** A programme session composed from an abstract. */
+async function addProgrammeSession(
+  informed: boolean,
+  options: ProgrammeSessionOptions = {},
+): Promise<string> {
   counter += 1;
   const id = `v1gate-sess-${counter}`;
+  const defaultStart = new Date(Date.UTC(2032, 0, 1, counter * 2));
   await ctx.db.insert(sessions).values({
     id,
     eventId: fixture.eventId,
@@ -93,14 +107,19 @@ async function addProgrammeSession(informed: boolean): Promise<string> {
     title: `Gate probe ${counter}`,
     status: "accepted",
     isAbstract: false,
-    startsAt: new Date(Date.now() + 86_400_000),
-    endsAt: new Date(Date.now() + 86_400_000 + 1_800_000),
-    isPublic: false,
+    startsAt: options.startsAt === undefined ? defaultStart : options.startsAt,
+    endsAt:
+      options.endsAt === undefined
+        ? new Date(defaultStart.getTime() + 1_800_000)
+        : options.endsAt,
+    roomId: options.roomId ?? null,
+    trackId: options.trackId ?? null,
+    isPublic: options.isPublic ?? false,
     speakerInformedAt: informed ? new Date() : null,
   });
   await ctx.db.insert(sessionParticipants).values({
     sessionId: id,
-    personId: fixture.speakerIds[0],
+    personId: options.personId ?? fixture.speakerIds[0],
     role: "speaker",
     isPrimary: true,
     order: 0,
@@ -158,6 +177,20 @@ describe("v1: is_public is not a create-time field", () => {
     expect(response.status).toBe(201);
     const body = await json(response);
     expect(body.is_public).toBe(false);
+  });
+
+  it("MUST FIRE: publish_force is update-only", async () => {
+    const response = await call(
+      createAction as Handler,
+      request("POST", eventPath("/sessions"), {
+        key: writeKey,
+        body: { title: "Control fields stay on updates", publish_force: true },
+      }),
+      { eventId: fixture.eventId },
+    );
+
+    expect(response.status).toBe(400);
+    expect((await json(response)).message).toContain("publish_force");
   });
 });
 
@@ -253,5 +286,195 @@ describe("v1: flipping is_public true obeys the informed gate", () => {
       .get(id) as Record<string, unknown>;
     expect(Object.keys(raw)).not.toContain("publish_override");
     expect((raw as { is_public: number }).is_public).toBe(1);
+  });
+});
+
+describe("v1: publishing obeys the blocking-conflict gate (DECISIONS #70)", () => {
+  const overlapStart = new Date("2033-05-01T16:00:00.000Z");
+  const overlapEnd = new Date("2033-05-01T17:00:00.000Z");
+
+  async function addSpeakerClash() {
+    const first = await addProgrammeSession(true, {
+      startsAt: overlapStart,
+      endsAt: overlapEnd,
+      roomId: fixture.roomIds[0],
+    });
+    const second = await addProgrammeSession(true, {
+      startsAt: overlapStart,
+      endsAt: overlapEnd,
+      roomId: fixture.roomIds[1],
+    });
+    return { first, second };
+  }
+
+  it("MUST FIRE: a speaker double-booking refuses publication and leaves the row private", async () => {
+    const { first } = await addSpeakerClash();
+
+    const response = await call(
+      sessionAction as Handler,
+      request("PUT", eventPath(`/sessions/${first}`), {
+        key: writeKey,
+        body: { is_public: true },
+      }),
+      { eventId: fixture.eventId, sessionId: first },
+    );
+
+    expect(response.status).toBe(409);
+    const body = await json(response);
+    expect(body.error).toBe("ConflictError");
+    expect(body.message).toContain("Speaker double-booked");
+    expect((await rowFor(first))?.isPublic).toBe(false);
+  });
+
+  it("MUST FIRE: publication predicts conflicts from the placement in the same update", async () => {
+    const moving = await addProgrammeSession(true, {
+      roomId: fixture.roomIds[0],
+    });
+    await addProgrammeSession(true, {
+      startsAt: overlapStart,
+      endsAt: overlapEnd,
+      roomId: fixture.roomIds[1],
+    });
+
+    const response = await call(
+      sessionAction as Handler,
+      request("PUT", eventPath(`/sessions/${moving}`), {
+        key: writeKey,
+        body: {
+          is_public: true,
+          starts_at: overlapStart.toISOString(),
+          ends_at: overlapEnd.toISOString(),
+        },
+      }),
+      { eventId: fixture.eventId, sessionId: moving },
+    );
+
+    expect(response.status).toBe(409);
+    expect((await json(response)).message).toContain("Speaker double-booked");
+    expect((await rowFor(moving))?.isPublic).toBe(false);
+  });
+
+  it("MUST NOT FIRE: publish_force allows the double-booked session to publish", async () => {
+    const { first } = await addSpeakerClash();
+
+    const response = await call(
+      sessionAction as Handler,
+      request("PUT", eventPath(`/sessions/${first}`), {
+        key: writeKey,
+        body: { is_public: true, publish_force: true },
+      }),
+      { eventId: fixture.eventId, sessionId: first },
+    );
+
+    expect(response.status).toBe(200);
+    expect((await rowFor(first))?.isPublic).toBe(true);
+  });
+
+  it("MUST NOT FIRE: a same-track overlap with different rooms and speakers stays advisory", async () => {
+    const first = await addProgrammeSession(true, {
+      startsAt: overlapStart,
+      endsAt: overlapEnd,
+      personId: fixture.speakerIds[0],
+      roomId: fixture.roomIds[0],
+      trackId: fixture.trackIds[0],
+    });
+    await addProgrammeSession(true, {
+      startsAt: overlapStart,
+      endsAt: overlapEnd,
+      personId: fixture.speakerIds[1],
+      roomId: fixture.roomIds[1],
+      trackId: fixture.trackIds[0],
+    });
+
+    const response = await call(
+      sessionAction as Handler,
+      request("PUT", eventPath(`/sessions/${first}`), {
+        key: writeKey,
+        body: { is_public: true },
+      }),
+      { eventId: fixture.eventId, sessionId: first },
+    );
+
+    expect(response.status).toBe(200);
+    expect((await rowFor(first))?.isPublic).toBe(true);
+  });
+
+  it("MUST FIRE: a session without a start time cannot be published", async () => {
+    const id = await addProgrammeSession(true, { startsAt: null, endsAt: null });
+
+    const response = await call(
+      sessionAction as Handler,
+      request("PUT", eventPath(`/sessions/${id}`), {
+        key: writeKey,
+        body: { is_public: true },
+      }),
+      { eventId: fixture.eventId, sessionId: id },
+    );
+
+    expect(response.status).toBe(400);
+    const body = await json(response);
+    expect(body.error).toBe("ValidationError");
+    expect(body.message).toContain("time");
+    expect((await rowFor(id))?.isPublic).toBe(false);
+  });
+
+  it("MUST NOT FIRE: an already-public session update is not re-gated", async () => {
+    const { first } = await addSpeakerClash();
+    await ctx.db.update(sessions).set({ isPublic: true }).where(eq(sessions.id, first));
+
+    const response = await call(
+      sessionAction as Handler,
+      request("PUT", eventPath(`/sessions/${first}`), {
+        key: writeKey,
+        body: { title: "A public session can still be edited" },
+      }),
+      { eventId: fixture.eventId, sessionId: first },
+    );
+
+    expect(response.status).toBe(200);
+    expect((await rowFor(first))?.title).toBe("A public session can still be edited");
+  });
+
+  it("MUST NOT FIRE: publish_force is a control flag, never a stored column", async () => {
+    const { first } = await addSpeakerClash();
+    const response = await call(
+      sessionAction as Handler,
+      request("PUT", eventPath(`/sessions/${first}`), {
+        key: writeKey,
+        body: { is_public: true, publish_force: true },
+      }),
+      { eventId: fixture.eventId, sessionId: first },
+    );
+
+    expect(response.status).toBe(200);
+    const raw = ctx.sqlite
+      .prepare("SELECT * FROM sessions WHERE id = ?")
+      .get(first) as Record<string, unknown>;
+    expect(Object.keys(raw)).not.toContain("publish_force");
+    expect((raw as { is_public: number }).is_public).toBe(1);
+  });
+
+  it("MUST FIRE: the bulk update path refuses the same blocking conflict", async () => {
+    const { first } = await addSpeakerClash();
+    const response = await call(
+      bulkAction as Handler,
+      request("POST", eventPath("/sessions/bulk"), {
+        key: writeKey,
+        body: {
+          operations: [{ action: "update", id: first, data: { is_public: true } }],
+        },
+      }),
+      { eventId: fixture.eventId },
+    );
+
+    expect(response.status).toBe(200);
+    const body = await json(response);
+    expect(body.stats).toEqual({ total: 1, succeeded: 0, failed: 1 });
+    expect(body.results[0]).toMatchObject({
+      status: "error",
+      error: { code: "conflict" },
+    });
+    expect(body.results[0].error.message).toContain("Speaker double-booked");
+    expect((await rowFor(first))?.isPublic).toBe(false);
   });
 });

@@ -171,7 +171,7 @@ function ListView({
      */
     <div
       data-speaker-view="list"
-      className="max-w-3xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-card dark:border-gray-800 dark:bg-gray-900"
+      className="mx-auto max-w-3xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-card dark:border-gray-800 dark:bg-gray-900"
     >
       {groups.map((group) => (
         <section
@@ -282,7 +282,7 @@ export default function PublicSpeakers({ loaderData }: Route.ComponentProps) {
             search bar over a 768px list reads as two unrelated pages. */}
         <div
           className={`flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-card sm:flex-row sm:items-end sm:justify-between dark:border-gray-800 dark:bg-gray-900 ${
-            view === "list" ? "max-w-3xl" : ""
+            view === "list" ? "mx-auto max-w-3xl" : ""
           }`}
         >
           <form method="get" className="flex min-w-0 flex-1 items-end gap-2">
@@ -311,14 +311,21 @@ export default function PublicSpeakers({ loaderData }: Route.ComponentProps) {
           <ViewToggle slug={event.slug} view={view} q={q} />
         </div>
 
-        <p data-speaker-count className="text-sm text-gray-600 dark:text-gray-400">
+        <p
+          data-speaker-count
+          className={`text-sm text-gray-600 dark:text-gray-400 ${
+            view === "list" ? "mx-auto max-w-3xl" : ""
+          }`}
+        >
           {q ? `${count} of ${total} speakers` : `${total} speaker${total === 1 ? "" : "s"}`}
         </p>
 
         {speakers.length === 0 ? (
           <div
             data-speaker-empty
-            className="rounded-xl border border-dashed border-gray-300 bg-white/60 p-8 text-center dark:border-gray-700 dark:bg-gray-900/40"
+            className={`rounded-xl border border-dashed border-gray-300 bg-white/60 p-8 text-center dark:border-gray-700 dark:bg-gray-900/40 ${
+              view === "list" ? "mx-auto max-w-3xl" : ""
+            }`}
           >
             <p className="font-medium">
               {q ? "No speakers match that search." : "Speakers have not been announced yet."}

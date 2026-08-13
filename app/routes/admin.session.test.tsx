@@ -17,7 +17,7 @@ import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { EVENT_SLUG, SPEAKERS, seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
-import { SessionScreen, action, loader } from "./admin.session";
+import AdminSession, { SessionScreen, action, loader } from "./admin.session";
 import type { SessionData } from "./admin.session";
 import { loader as agendaLoader } from "./admin.agenda";
 import { loader as publicScheduleLoader } from "./public.schedule";
@@ -178,6 +178,112 @@ describe("edit-session (CNT-09)", () => {
 });
 
 describe("add / remove participant (SPK-11)", () => {
+  it("MUST FIRE: adding a speaker who would clash with a public session is refused before the write", async () => {
+    await overlapSecondWithFirst();
+
+    const result = await post(fixture.programSessionIds[0], {
+      intent: "add-participant",
+      personId: fixture.speakerIds[1],
+      role: "panelist",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("Speaker double-booked"),
+      blocked: {
+        personId: fixture.speakerIds[1],
+        role: "panelist",
+        reasons: [expect.stringContaining("Speaker double-booked")],
+      },
+    });
+    expect(await participantIds(fixture.programSessionIds[0])).not.toContain(
+      fixture.speakerIds[1],
+    );
+  });
+
+  it("MUST FIRE: an unpublished edit is also refused when the other session is public", async () => {
+    await overlapSecondWithFirst();
+    await ctx.db
+      .update(sessions)
+      .set({ isPublic: false })
+      .where(eq(sessions.id, fixture.programSessionIds[0]));
+
+    const result = await post(fixture.programSessionIds[0], {
+      intent: "add-participant",
+      personId: fixture.speakerIds[1],
+      role: "panelist",
+    });
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("already public") });
+    expect(await participantIds(fixture.programSessionIds[0])).not.toContain(
+      fixture.speakerIds[1],
+    );
+  });
+
+  it("MUST NOT FIRE: force adds the speaker despite the public double-booking", async () => {
+    await overlapSecondWithFirst();
+
+    const response = await post(fixture.programSessionIds[0], {
+      intent: "add-participant",
+      personId: fixture.speakerIds[1],
+      role: "panelist",
+      force: "1",
+    });
+
+    expect((response as Response).status).toBe(302);
+    expect((response as Response).headers.get("location")).toContain("warn=forced");
+    expect(await participantIds(fixture.programSessionIds[0])).toContain(
+      fixture.speakerIds[1],
+    );
+  });
+
+  it("MUST NOT FIRE: two unpublished sessions retain warning-only assignment", async () => {
+    await overlapSecondWithFirst();
+    await ctx.db
+      .update(sessions)
+      .set({ isPublic: false })
+      .where(eq(sessions.id, fixture.programSessionIds[0]));
+    await ctx.db
+      .update(sessions)
+      .set({ isPublic: false })
+      .where(eq(sessions.id, fixture.programSessionIds[1]));
+
+    const response = await post(fixture.programSessionIds[0], {
+      intent: "add-participant",
+      personId: fixture.speakerIds[1],
+      role: "panelist",
+    });
+
+    expect((response as Response).status).toBe(302);
+    expect((response as Response).headers.get("location")).toContain("warn=conflict");
+    expect(await participantIds(fixture.programSessionIds[0])).toContain(
+      fixture.speakerIds[1],
+    );
+    expect((await load(fixture.programSessionIds[0])).conflicts).toEqual(
+      expect.arrayContaining([expect.stringContaining(`Speaker double-booked`)]),
+    );
+  });
+
+  it("MUST NOT FIRE: a published same-track overlap without a shared speaker stays advisory", async () => {
+    await overlapSecondWithFirst();
+    const first = await sessionRow(fixture.programSessionIds[0]);
+    await ctx.db
+      .update(sessions)
+      .set({ trackId: first!.trackId })
+      .where(eq(sessions.id, fixture.programSessionIds[1]));
+
+    const response = await post(fixture.programSessionIds[0], {
+      intent: "add-participant",
+      personId: fixture.speakerIds[2],
+      role: "panelist",
+    });
+
+    expect((response as Response).status).toBe(302);
+    expect(await participantIds(fixture.programSessionIds[0])).toContain(
+      fixture.speakerIds[2],
+    );
+  });
+
   it("MUST FIRE: an added speaker lands on the session and on its composed abstract", async () => {
     const response = await post(fixture.programSessionIds[0], {
       intent: "add-participant",
@@ -235,6 +341,21 @@ describe("add / remove participant (SPK-11)", () => {
       fixture.speakerIds[2],
     );
 
+    // Role validation remains first even when this person would otherwise
+    // create a public double-booking; retrying a blocked form cannot make an
+    // invalid role valid.
+    await overlapSecondWithFirst();
+    expect(
+      await post(fixture.programSessionIds[0], {
+        intent: "add-participant",
+        personId: fixture.speakerIds[1],
+        role: "keynote_legend",
+      }),
+    ).toEqual({ ok: false, error: "Pick a role for this speaker." });
+    expect(await participantIds(fixture.programSessionIds[0])).not.toContain(
+      fixture.speakerIds[1],
+    );
+
     expect(
       await post(fixture.programSessionIds[0], {
         intent: "add-participant",
@@ -287,6 +408,7 @@ describe("double-booking (AIA-04)", () => {
       intent: "add-participant",
       personId: fixture.speakerIds[1],
       role: "panelist",
+      force: "1",
     });
 
     const data = await load(fixture.programSessionIds[0]);
@@ -322,12 +444,36 @@ describe("double-booking (AIA-04)", () => {
 });
 
 describe("render", () => {
+  it("renders an add-anyway form with the refused participant and role", async () => {
+    const data = await load(fixture.programSessionIds[0]);
+    const html = renderToStaticMarkup(
+      AdminSession({
+        loaderData: data,
+        actionData: {
+          ok: false,
+          error: "Blocked for a public speaker clash.",
+          blocked: {
+            personId: fixture.speakerIds[1],
+            role: "panelist",
+            reasons: [`Speaker double-booked Â· ${SPEAKERS[1].name}`],
+          },
+        },
+      } as never),
+    );
+
+    expect(html).toContain("Add anyway");
+    expect(html).toContain('name="force" value="1"');
+    expect(html).toContain(`name="personId" value="${fixture.speakerIds[1]}"`);
+    expect(html).toContain('name="role" value="panelist"');
+  });
+
   it("ships the edit form, the participants editor, and the conflict banner", async () => {
     await overlapSecondWithFirst();
     await post(fixture.programSessionIds[0], {
       intent: "add-participant",
       personId: fixture.speakerIds[1],
       role: "panelist",
+      force: "1",
     });
     const data = await load(fixture.programSessionIds[0]);
     const html = renderToStaticMarkup(<SessionScreen {...data} />);

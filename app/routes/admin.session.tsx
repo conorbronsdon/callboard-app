@@ -37,7 +37,11 @@ import {
   listSessionRevisions,
   restoreSessionRevision,
 } from "~/lib/admin/session-revisions.server";
-import { conflictLabel } from "~/lib/agenda/conflicts";
+import {
+  blockingConflicts,
+  conflictLabel,
+  findConflicts,
+} from "~/lib/agenda/conflicts";
 import { conflictsInvolving, loadProgramme } from "~/lib/agenda/programme.server";
 import { requireAdmin } from "~/lib/auth/auth.server";
 import { currentEvent } from "~/lib/event.server";
@@ -287,20 +291,63 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (intent === "add-participant") {
     const personId = String(formData.get("personId") ?? "");
+    const role = String(formData.get("role") ?? "");
+    const force = String(formData.get("force") ?? "") === "1";
+
+    const before = await loadProgramme(event.id);
+    const target = before.sessions.find((session) => session.id === sessionId);
+    if (
+      target &&
+      (PARTICIPANT_ROLES as readonly string[]).includes(role) &&
+      !target.participants.some((participant) => participant.id === personId)
+    ) {
+      const personName = await personDisplayName(personId);
+      const hypothetical = before.sessions.map((session) =>
+        session.id === sessionId
+          ? {
+              ...session,
+              participants: [...session.participants, { id: personId, name: personName }],
+            }
+          : session,
+      );
+      /*
+       * Only this person's speaker conflicts can be introduced here: the
+       * duplicate guard above leaves the existing participant set unchanged,
+       * so an older clash cannot be mistaken for a consequence of this write.
+       * A clash between drafts remains parkable; either public commitment makes
+       * it a live double-booking and needs an explicit organizer choice.
+       */
+      const newBlocking = blockingConflicts(findConflicts(hypothetical)).filter(
+        (conflict) => conflict.kind === "speaker" && conflict.resourceId === personId,
+      );
+      const isPublicById = new Map(
+        before.sessions.map((session) => [session.id, session.isPublic]),
+      );
+      const blocksAPublishedSession = newBlocking.some(
+        (conflict) => isPublicById.get(conflict.a.id) || isPublicById.get(conflict.b.id),
+      );
+      if (blocksAPublishedSession && !force) {
+        const reasons = newBlocking.map(conflictLabel);
+        return {
+          ok: false as const,
+          error: `Blocked: ${reasons.join(", ")}. This would double-book a speaker on a session that's already public. Add anyway, or pick a different speaker.`,
+          blocked: { personId, role, reasons },
+        };
+      }
+    }
+
     const result = await addSessionParticipant({
       sessionId,
       eventId: event.id,
       personId,
-      role: String(formData.get("role") ?? ""),
+      role,
     });
     if (!result.ok) return { ok: false as const, error: result.error };
 
     const query = new URLSearchParams({ added: await personDisplayName(personId) });
-    // Warn, never block: recompute AFTER the participant write so a newly
-    // double-booked speaker is visible without undoing the organizer's choice.
     const after = await loadProgramme(event.id);
     if (conflictsInvolving(after.conflicts, sessionId).length > 0) {
-      query.set("warn", "conflict");
+      query.set("warn", force ? "forced" : "conflict");
     }
     return redirect(`${detailUrl}?${query.toString()}`);
   }
@@ -516,13 +563,31 @@ export function SessionScreen(data: SessionData) {
 }
 
 export default function AdminSession({ loaderData, actionData }: Route.ComponentProps) {
-  const error = (actionData as { ok?: boolean; error?: string } | undefined)?.error;
+  const result = actionData as
+    | {
+        ok?: boolean;
+        error?: string;
+        blocked?: { personId: string; role: string; reasons: string[] };
+      }
+    | undefined;
+  const error = result?.error;
   return (
     <>
       {error ? (
         <p className="mb-3 rounded border border-red-400 bg-red-50 p-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
           {error}
         </p>
+      ) : null}
+      {result?.blocked ? (
+        <form method="post" className="mb-3 flex items-center gap-2">
+          <input type="hidden" name="intent" value="add-participant" />
+          <input type="hidden" name="personId" value={result.blocked.personId} />
+          <input type="hidden" name="role" value={result.blocked.role} />
+          <input type="hidden" name="force" value="1" />
+          <button type="submit" className={BUTTON}>
+            Add anyway
+          </button>
+        </form>
       ) : null}
       <SessionScreen {...loaderData} />
     </>

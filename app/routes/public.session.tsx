@@ -120,7 +120,7 @@ export default function PublicSession({ loaderData }: Route.ComponentProps) {
     >
       <article
         data-public-session-detail={slot.id}
-        className="rounded-xl border border-gray-200 bg-white p-5 shadow-card sm:p-7 dark:border-gray-800 dark:bg-gray-900"
+        className="max-w-3xl rounded-xl border border-gray-200 bg-white p-5 shadow-card sm:p-7 dark:border-gray-800 dark:bg-gray-900"
       >
         <p className="font-mono text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
           {dayLabel} · {slot.timeLabel}

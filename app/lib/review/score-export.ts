@@ -4,7 +4,10 @@ import {
   aggregateByRound,
   aggregateFor,
   choiceSummaries,
+  weightedAggregateByRound,
+  weightedAggregateFor,
   type AggregateReview,
+  type WeightedAggregate,
 } from "./aggregate";
 import { tabFor } from "./pipeline";
 import { isSelectCriterion, isTextCriterion, type Rubric } from "./scoring";
@@ -39,8 +42,14 @@ export interface ScoreExportSubmission {
   aiTriage?: { score: number | null; recommendation: string | null } | null;
 }
 
-function formattedScore(value: number | null): string {
-  return value === null ? "" : value.toFixed(2);
+function formatWeightedScore(
+  weighted: WeightedAggregate,
+  criterionAverage: number | null,
+): string {
+  if (weighted.average !== null && weighted.max !== null) {
+    return `${weighted.average.toFixed(1)} / ${weighted.max}`;
+  }
+  return criterionAverage === null ? "" : `${criterionAverage.toFixed(2)} avg`;
 }
 
 export function buildScoreCsv(
@@ -71,7 +80,7 @@ export function buildScoreCsv(
       "Track",
       "Status",
       "Reviews",
-      "Aggregate score",
+      "Aggregate score (weighted avg / max)",
       ...rounds.map((round) => round.name),
       ...choiceColumns.map(({ round, criterion }) => `${round.name} — ${criterion.label}`),
       ...textColumns.map(({ round, criterion }) => `${round.name} — ${criterion.label}`),
@@ -86,6 +95,8 @@ export function buildScoreCsv(
     ordered.map((submission) => {
       const aggregate = aggregateFor(submission.reviews, rubricByRound);
       const byRound = aggregateByRound(submission.reviews, rubricByRound);
+      const weighted = weightedAggregateFor(submission.reviews, rubricByRound);
+      const weightedByRound = weightedAggregateByRound(submission.reviews, rubricByRound);
       const roundOrder = new Map(rounds.map((round, index) => [round.id, index] as const));
       const roundNames = new Map(rounds.map((round) => [round.id, round.name] as const));
       const comments = submission.reviews
@@ -114,8 +125,13 @@ export function buildScoreCsv(
         submission.trackName,
         tabFor(submission.status).label,
         aggregate.reviewCount,
-        formattedScore(aggregate.average),
-        ...rounds.map((round) => formattedScore(byRound.get(round.id)?.average ?? null)),
+        formatWeightedScore(weighted, aggregate.average),
+        ...rounds.map((round) =>
+          formatWeightedScore(
+            weightedByRound.get(round.id) ?? { average: null, max: null },
+            byRound.get(round.id)?.average ?? null,
+          ),
+        ),
         ...choiceColumns.map(({ round, criterion }) => {
           const summary = choiceSummaries(
             round.rubric,
