@@ -510,7 +510,7 @@ describe("board render", () => {
       expect(section).toContain(PIPELINE_STAGE_LABELS[stage]);
       expect(section).toContain(`>${data.columns.find((column) => column.stage === stage)?.cards.length}</span>`);
     }
-    expect(markup).toContain("No contacts here yet.");
+    expect(markup).toContain("No contacts in this stage.");
   });
 
   it("MUST FIRE: the hydrated dnd board retains the live e2e card controls", async () => {

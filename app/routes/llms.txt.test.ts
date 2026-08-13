@@ -14,47 +14,11 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 
-import routes from "~/routes";
 import { DEMO_ACCOUNTS, DEMO_EVENT_SLUG } from "~/lib/demo";
+import { pathsIn, resolves } from "~/test/route-manifest";
 import { env, resetEnv } from "~/test/workers-env";
 
 import { loader } from "./llms.txt";
-
-type RouteEntry = { path?: string; index?: boolean; children?: RouteEntry[] };
-
-/** `app/routes.ts` -> every registered path, children joined onto their parent. */
-function flatten(entries: readonly RouteEntry[], prefix = ""): string[] {
-  const out: string[] = [];
-  for (const entry of entries) {
-    // An index route has no `path` of its own: it IS the parent's path.
-    const full = entry.path ? [prefix, entry.path].filter(Boolean).join("/") : prefix;
-    out.push(full);
-    if (entry.children) out.push(...flatten(entry.children, full));
-  }
-  return out;
-}
-
-const REGISTERED = flatten(routes as RouteEntry[]).map((path) => `/${path}`.replace(/\/{2,}/g, "/"));
-
-/**
- * Does a path written in llms.txt resolve to a registered route? Compared
- * segment-wise so a manifest `:param` accepts either a concrete value (the
- * seeded demo slug) or the same `:param` written literally in the doc.
- */
-function resolves(listed: string): boolean {
-  const want = listed.split("/").filter(Boolean);
-  return REGISTERED.some((pattern) => {
-    const have = pattern.split("/").filter(Boolean);
-    if (have.length !== want.length) return false;
-    return have.every((segment, i) => segment.startsWith(":") || segment === want[i]);
-  });
-}
-
-/** Every `/…` token in the body, trailing sentence punctuation removed. */
-function pathsIn(body: string): string[] {
-  const found = body.match(/(?<=^|[\s(])\/[A-Za-z0-9:._/-]*/gm) ?? [];
-  return [...new Set(found.map((raw) => raw.replace(/[.,;:)]+$/, "")))];
-}
 
 async function bodyFor(profile: "demo" | "production"): Promise<string> {
   Object.assign(

@@ -19,6 +19,8 @@ export default [
   route("e/:slug/schedule.ics", "routes/public.calendar.ts"),
   route("e/:slug/speakers", "routes/public.speakers.tsx"),
   route("e/:slug/speakers/:personId", "routes/public.speaker.tsx"),
+  // Event-scoped agent map — sibling of the platform llms.txt route above.
+  route("e/:slug/llms.txt", "routes/public.llms.ts"),
   /*
    * Consent-gated headshot bytes. NOT nested under `speakers/:personId` — that
    * would make the photo look like a sub-resource of the profile page, and the

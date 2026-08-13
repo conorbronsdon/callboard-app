@@ -156,7 +156,8 @@ export default function PublicSpeaker({ loaderData }: Route.ComponentProps) {
                 </p>
               ) : (
                 <p data-speaker-bio-empty className="mt-5 text-sm italic text-gray-500 dark:text-gray-400">
-                  No biography has been added yet.
+                  No biography yet. Speakers write their own from the speaker portal, and it
+                  appears here as soon as it is saved.
                 </p>
               )}
             </div>

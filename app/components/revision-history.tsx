@@ -99,7 +99,8 @@ export function RevisionHistory({
 
       {entries.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed border-gray-300 p-4 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-400">
-          No content edits recorded yet.
+          No content edits recorded yet. Each save adds a revision here with its editor, source and
+          changes.
         </p>
       ) : (
         <ol className="mt-4 space-y-3">

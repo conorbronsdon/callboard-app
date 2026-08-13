@@ -1,5 +1,15 @@
 # Callboard
 
+<div align="center">
+
+[![GitHub stars](https://img.shields.io/github/stars/conorbronsdon/callboard-app?style=social)](https://github.com/conorbronsdon/callboard-app/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![X](https://img.shields.io/badge/X-@ConorBronsdon-black?style=flat-square&logo=x)](https://x.com/ConorBronsdon)
+[![Chain of Thought](https://img.shields.io/badge/Podcast-Chain_of_Thought-D93E12?style=flat-square)](https://chainofthought.show/?utm_source=github&utm_medium=referral&utm_campaign=repo-readme&utm_content=callboard-app)
+
+</div>
+
+
 Open-source speaker and call-for-proposals management for events.
 
 Callboard covers the workflow from public submission through organizer review,
@@ -73,13 +83,13 @@ Suggested walkthrough:
 
 ## Limitations
 
-Known open gaps, verified against `main` at `2ebf55e`. Each one names the file
+Known open gaps, verified against the commit this file ships in. Each one names the file
 or command that shows it, so it can be rechecked rather than taken on trust.
 
-Volatile counts at `2ebf55e`, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **15** migrations;
+Volatile counts for the commit this file ships in, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **17** migrations;
 `grep -c 'sqliteTable(' app/db/schema.ts` → **37** tables;
 `grep -oE 'insert\("[a-z_]+"' scripts/seed.mjs | sort -u | wc -l` → **29** seeded
-tables; `npx vitest list --run | wc -l` → **2269** tests.
+tables; `npx vitest list --run | wc -l` → **2610** tests.
 
 **AI triage is advisory only and never decides.** Workers AI (the `"ai"` binding
 in `wrangler.jsonc`, model `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) produces a
@@ -158,6 +168,24 @@ JavaScript, does not sync across devices or browsers, is not tied to an account,
 and is lost when site data is cleared. The rest of the public schedule —
 search, day tabs, track/format/room facets — works without JavaScript.
 
+**Review blinding hides structured identity, not prose.** A blinded round
+excludes a session's `session_participants` row from the reviewer query
+entirely — only a `count()` runs (`app/routes/review.index.tsx:114-143`) — so
+name, email, company, and title never reach the reviewer. The abstract body is
+shown verbatim, so a submitter who names themselves in their own text is still
+identifiable, and un-blinding a round does not retroactively hide what a
+reviewer already saw before you re-checked the box. The claim is checkable in
+the reviewer query itself (`app/routes/review.index.tsx:114-143`): the blinded
+branch never selects the identity columns, so they cannot reach the wire.
+
+**The review engine generalizes to awards and grants judging; awards
+vocabulary does not exist yet.** Weighted rubrics, enforced per-round
+blinding, reviewer recusal, and multi-round assignment are judging primitives,
+not CFP-specific ones — nothing in `app/lib/review/` assumes "submission" over
+"nominee" or "applicant." Renaming the vocabulary and shipping a public
+winners page is deliberate post-competition roadmap, not a gap in what ships
+today.
+
 **Reviewer invitations are not delivered.** An outside reviewer can be
 provisioned by email and gains the capability immediately (`invite-reviewer` in
 `admin.reviews.tsx`), but the invite panel does not claim a delivery it cannot
@@ -185,7 +213,12 @@ paths, which also makes 25 MB a deliberate ceiling rather than a tunable.
 `MAIL_DRIVER=console`, so confirmation emails, invitations, reminders, and
 decision notifications are printed to the Worker log instead of delivered.
 Demo mode reveals the magic link in the sign-in response so a judge can proceed
-without a mailbox. Outlook ICS lifecycle rendering remains unverified.
+without a mailbox. Real delivery is a production feature, not a gap: the
+Resend driver ships in this repo and native Gmail calendar invites were
+verified end-to-end (`app/lib/comms/ics.ts:5`). The judged demo keeps mail on
+the console deliberately — an anonymous-writable demo must not be able to
+email strangers. Want to see live delivery? Ask, and we'll stand up a
+mail-enabled instance scoped to addresses you control. Outlook ICS lifecycle rendering remains unverified.
 
 Submission evidence, including the requirement-to-screen map, is in [SUBMISSION_EVIDENCE.md](SUBMISSION_EVIDENCE.md).
 
@@ -193,12 +226,15 @@ Submission evidence, including the requirement-to-screen map, is in [SUBMISSION_
 
 Every row is a claim this README makes, paired with the exact command or URL
 that proves or disproves it. Repository commands run from a clean checkout after
-`npm ci`.
+`npm ci`. The same rule holds for every figure in this README, not just this
+table: each one is either generated from the deployment (a constant named in
+its source file, a count with the command that produces it) or paired with the
+command that reproduces it.
 
 | Claim | How to check it |
 |---|---|
 | The migration, table, and seeded-table counts are real | Run the three commands stamped at the top of [Limitations](#limitations); each prints the number quoted beside it |
-| The test suite is the size claimed | `npx vitest list --run \| wc -l`. Limitations stamps this count at `2ebf55e`; later commits report a larger number, which is why the stamp names a SHA |
+| The test suite is the size claimed | `npx vitest list --run \| wc -l`. Limitations stamps this count for the commit the file ships in — run it against your checkout and it should match exactly |
 | The whole gate passes three consecutive isolated times | `npm run release:verify:repeat` — writes one attempt per pass to `artifacts/release-gate/<sha>/manifest.json` and only sets `"result": "passed"` after three |
 | CI runs that same gate, not a lighter one | [`.github/workflows/check.yml`](.github/workflows/check.yml) and [`.github/workflows/repeat-release-gate.yml`](.github/workflows/repeat-release-gate.yml) |
 | Calendar invites actually land in a real calendar | `app/lib/comms/ics.ts:5` records the end-to-end verification against Gmail on 2026-08-08: native RSVP card, event auto-staged, conflict detection ran |
@@ -395,10 +431,18 @@ scripts/          seed, guards, acceptance checks, and smoke
 tests/e2e/        Playwright golden paths and fixtures
 ```
 
-Code comments cite `PLAN.md` and `research/*.md` — the private planning and
-competitive-research notes this project was built from. They are not part of
-the public repository; the conclusions they informed are recorded in
-[DECISIONS.md](DECISIONS.md).
+Some code comments cite private planning and competitive-research notes this
+project was built from. Those notes are not part of the public repository; the
+conclusions they informed are recorded in [DECISIONS.md](DECISIONS.md).
+
+## About
+
+Callboard is built by [Conor Bronsdon](https://conorbronsdon.com/?utm_source=github&utm_medium=referral&utm_campaign=repo-readme&utm_content=callboard-app) —
+host of the [Chain of Thought podcast](https://chainofthought.show/?utm_source=github&utm_medium=referral&utm_campaign=repo-readme&utm_content=callboard-app),
+angel investor in AI infrastructure and developer tools, and previously
+Technical Ecosystem Lead at Modular. Say hi on
+[X](https://x.com/ConorBronsdon) or
+[LinkedIn](https://www.linkedin.com/in/conorbronsdon/).
 
 Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md). Coding agents must
 also read [AGENTS.md](AGENTS.md). Product tradeoffs are recorded in

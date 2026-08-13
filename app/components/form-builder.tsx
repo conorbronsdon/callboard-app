@@ -652,7 +652,10 @@ export function CombinedLimitEditor({
           })}
         </ul>
       ) : (
-        <p className="mb-4 text-sm text-gray-500">No combined limits yet.</p>
+        <p className="mb-4 text-sm text-gray-500">
+          No combined limits yet. Add a rule below to cap the total characters across two or more
+          text fields.
+        </p>
       )}
 
       <Form method="post" className="grid items-end gap-3 sm:grid-cols-4">

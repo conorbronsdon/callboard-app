@@ -321,7 +321,7 @@ export function ContactDetailScreen({ data, actionData }: { data: ContactDetailD
 
       <section className={CARD} data-testid="contact-tags">
         <h3 className="font-semibold">Tags</h3>
-        {data.tags.length ? <div className="mt-2 flex flex-wrap gap-1">{data.tags.map((tag) => <span key={tag} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">{tag}</span>)}</div> : <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No tags yet.</p>}
+        {data.tags.length ? <div className="mt-2 flex flex-wrap gap-1">{data.tags.map((tag) => <span key={tag} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">{tag}</span>)}</div> : <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No tags on this contact. Tags are free-text labels you add below, and they drive saved segments in the contacts directory.</p>}
         {!contact.mergedInto ? <form method="post" className="mt-3 space-y-2"><label className="block text-sm">Comma-separated tags<input name="tags" defaultValue={data.tags.join(", ")} className={inputClass} /></label><p className="text-xs text-gray-500 dark:text-gray-400">Save an empty field to clear all tags.</p><button type="submit" name="intent" value="set-tags" className={BUTTON}>Save tags</button></form> : null}
       </section>
 
@@ -421,7 +421,7 @@ export function ContactDetailScreen({ data, actionData }: { data: ContactDetailD
                 );
               })
             ) : (
-              <li className="py-2 text-sm text-gray-500 dark:text-gray-400">No transitions recorded yet.</li>
+              <li className="py-2 text-sm text-gray-500 dark:text-gray-400">No pipeline transitions recorded yet. Adding this contact to the sourcing pipeline or moving them to another stage logs who made the change and when.</li>
             )}
           </ol>
         </div>
@@ -451,7 +451,7 @@ export function ContactDetailScreen({ data, actionData }: { data: ContactDetailD
             const eventSessions = data.sessions.filter((session) => session.eventId === event.eventId);
             return <li key={event.eventId} className="rounded-lg border border-gray-200 p-3 dark:border-gray-800 dark:bg-gray-900">
               <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{event.eventName}</span><span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">{event.eventRole}</span><span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-800 dark:bg-blue-950 dark:text-blue-200">{event.status}</span></div>
-              {eventSessions.length ? <ul className="mt-2 space-y-1 text-sm">{eventSessions.map((session) => <li key={`${session.sessionId}-${session.role}`}><a className={linkClass} href={`/admin/submissions/${session.sessionId}`}>{session.title}</a> - {session.role}{session.isAbstract ? " - abstract" : ""}</li>)}</ul> : <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">No sessions for this contact.</p>}
+              {eventSessions.length ? <ul className="mt-2 space-y-1 text-sm">{eventSessions.map((session) => <li key={`${session.sessionId}-${session.role}`}><a className={linkClass} href={`/admin/submissions/${session.sessionId}`}>{session.title}</a> - {session.role}{session.isAbstract ? " - abstract" : ""}</li>)}</ul> : <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">No sessions for this contact. Talks appear here when this person is attached as a speaker or co-author.</p>}
             </li>;
           })}</ul>
         )}
@@ -467,7 +467,7 @@ export function ContactDetailScreen({ data, actionData }: { data: ContactDetailD
         {data.notes.length ? <ul className="mt-4 divide-y divide-gray-200 dark:divide-gray-800">{data.notes.map((note) => {
           const timestamp = new Date(note.createdAt).toISOString();
           return <li key={note.id} className="py-3"><p className="whitespace-pre-wrap text-sm">{note.body}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{note.authorName} - <time dateTime={timestamp}>{timestamp}</time></p></li>;
-        })}</ul> : <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No internal notes yet.</p>}
+        })}</ul> : <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No internal notes yet. Notes you add above stay with the team and are never shown to the speaker.</p>}
       </section>
     </div>
   );

@@ -236,7 +236,8 @@ function BoardShell({
                 </div>
               ) : (
                 <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-                  No contacts here yet.
+                  No contacts in this stage. Drag a card here from another column, or pick this
+                  stage on a card and press Move.
                 </p>
               )}
             </Column>

@@ -58,6 +58,52 @@ function assertOnScreen(page: Page, label: string, point: { x: number; y: number
   );
 }
 
+interface BoardCell {
+  roomId: string;
+  time: string;
+  cardIds: string[];
+}
+
+/**
+ * Every room×time cell of the day board, and which sessions are sitting in it.
+ *
+ * Read from the board rather than hard-coded, because "is 17:45 free?" is a
+ * property of the SEED, not of the product. This spec used to name a time and a
+ * duration outright; the seed grew denser, that slot stopped being empty, and a
+ * test about JS-off form round-trips started failing for reasons that had
+ * nothing to do with JavaScript. Asking the board keeps the intent ("a cell
+ * nobody is in" / "a cell somebody is in") stable as the programme changes.
+ *
+ * Each cell's markup runs from its own `data-slot` to its closing tag and holds
+ * no nested cell, so a non-greedy match per `<td>` is exact.
+ */
+async function dayBoardCells(page: Page, day: string): Promise<BoardCell[]> {
+  const html = await (await page.request.get(`/admin/agenda?view=day&day=${day}`)).text();
+  const cells: BoardCell[] = [];
+  for (const match of html.matchAll(/<td[^>]*data-slot="([^"]+)"[^>]*>([\s\S]*?)<\/td>/g)) {
+    // `slot|<roomId>|<day>|<time>` — the literal prefix is part of the id, which
+    // is also why the drop-target locators below match on the `|DAY|HH:MM` tail.
+    const [, roomId, , time] = match[1].split("|");
+    // The tray droppable is `data-slot="tray"` — no slot|room|day|time shape.
+    if (!time) continue;
+    cells.push({
+      roomId,
+      time,
+      cardIds: [...match[2].matchAll(/data-session-card="([^"]+)"/g)].map((card) => card[1]),
+    });
+  }
+  expect(cells.length, "the day board rendered room×time cells").toBeGreaterThan(0);
+  return cells;
+}
+
+/** "17:45" → "5:45 PM", the label the list view prints. */
+function timeLabel(time: string): string {
+  const [hours, minutes] = time.split(":").map(Number);
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
 /**
  * Put the programme in a KNOWN state before each test, through the product's own
  * action rather than a SQL fixture. Tests then do not depend on each other's
@@ -102,7 +148,14 @@ test("dragging a session into a room×time slot persists it via the schedule act
 
   // Hydration turns the static cards into draggable buttons. Waiting for the
   // button form is the honest "dnd is live now" signal.
-  const card = page.locator("button[data-session-card]").first();
+  //
+  // Scoped to `td[data-slot]` — the tray renders cards too, and it comes FIRST
+  // in the DOM, so the unscoped selector returned an UNSCHEDULED card whenever
+  // the tray was non-empty. The origin-slot lookup below then waited for a card
+  // that is by definition in no cell at all. Whether that happened was decided
+  // by whatever earlier specs left in the tray, which is not a thing this test
+  // should be measuring.
+  const card = page.locator("td[data-slot] button[data-session-card]").first();
   await expect(card).toBeVisible({ timeout: 15_000 });
 
   const sessionId = await card.getAttribute("data-session-card");
@@ -205,11 +258,18 @@ test("dropping a card on the unscheduled tray clears its time", async ({ page })
   await expect(page.locator(`#session-${sessionId}`)).toContainText("Unscheduled");
 });
 
-test("the board works with JavaScript disabled — the card form round-trips", async ({
+test("the board works with JavaScript disabled — the card form round-trips, and the blocking gate covers it", async ({
   browser,
 }) => {
   // The floor of the layered design (PLAN §4 WS4 / cut ladder №3): with no JS
   // there is no dnd-kit at all, and scheduling must still work.
+  //
+  // It is also where DECISIONS #70's central claim gets tested. The gate that
+  // refuses a physically impossible placement lives in the ACTION, which the
+  // drag and this <details> form both POST — "prediction covers both paths by
+  // construction". Construction is an argument; this is the measurement. If the
+  // gate were ever wired into the drag handler instead, every drag test would
+  // stay green and only this one would notice.
   const context = await browser.newContext({
     javaScriptEnabled: false,
     viewport: { width: 1440, height: 1000 },
@@ -222,21 +282,76 @@ test("the board works with JavaScript disabled — the card form round-trips", a
   await resetProgramme(page);
 
   await page.goto("/admin/agenda?view=list");
-  const row = page.locator("[data-session-row]").first();
-  const sessionId = await row.getAttribute("data-session-row");
+  const sessionId = await page.locator("[data-session-row]").first().getAttribute("data-session-row");
+  expect(sessionId).toBeTruthy();
+
+  /*
+   * PINNED to the id, not `.first()`.
+   *
+   * A locator is lazy — it re-resolves on every use — and the list groups
+   * Unscheduled rows before Scheduled ones. So the moment step 1 schedules this
+   * session, it leaves the top group and `.first()` starts resolving to a
+   * DIFFERENT session. An earlier draft of this test re-used a `.first()` row
+   * and spent steps 2 and 3 driving some other session's form while asserting
+   * against this one's id; it went red for the right reason by luck and would
+   * have gone green for the wrong one just as easily.
+   */
+  const row = page.locator(`[data-session-row="${sessionId}"]`);
 
   // No hydration, so cards are plain divs, never buttons.
   await expect(page.locator("button[data-session-card]")).toHaveCount(0);
 
-  await row.locator("summary").click();
-  await row.locator('select[name="day"]').selectOption(DAY);
-  await row.locator('input[name="time"]').fill("17:45");
-  await row.locator('select[name="durationMinutes"]').selectOption("60");
-  await row.getByRole("button", { name: "Save" }).click();
+  const cells = await dayBoardCells(page, DAY);
+  const empty = cells.find((cell) => cell.cardIds.length === 0);
+  // Somebody ELSE's cell: a session cannot double-book itself, and predict.ts
+  // replaces rather than appends precisely so a no-op re-drop is not a clash.
+  const occupied = cells.find(
+    (cell) => cell.cardIds.length > 0 && !cell.cardIds.includes(sessionId!),
+  );
+  expect(empty, "an empty room×time cell on the day board").toBeTruthy();
+  expect(occupied, "a cell already holding another session").toBeTruthy();
 
+  /* ── 1. a clean move still round-trips with no JavaScript at all ───────── */
+  const save = async (roomId: string, time: string) => {
+    await row.locator("summary").click();
+    await row.locator('select[name="roomId"]').selectOption(roomId);
+    await row.locator('select[name="day"]').selectOption(DAY);
+    await row.locator('input[name="time"]').fill(time);
+    await row.locator('select[name="durationMinutes"]').selectOption("30");
+    await row.getByRole("button", { name: "Save" }).click();
+  };
+
+  await save(empty!.roomId, empty!.time);
   await page.waitForURL(/moved=/, { timeout: 15_000 });
   await page.goto("/admin/agenda?view=list");
-  await expect(page.locator(`#session-${sessionId}`)).toContainText("5:45 PM – 6:45 PM");
+  await expect(page.locator(`#session-${sessionId}`)).toContainText(timeLabel(empty!.time));
+
+  /* ── 2. the same form, aimed at an occupied cell, is REFUSED by name ───── */
+  await save(occupied!.roomId, occupied!.time);
+
+  // No redirect: the action returns the refusal and the board re-renders with
+  // it, so the URL never gains `moved=`.
+  await expect(page.getByText(/^Blocked: /)).toBeVisible();
+  await expect(page.getByText(/Room double-booked · /)).toBeVisible();
+  expect(page.url(), "a refused move does not navigate to a moved= redirect").not.toMatch(
+    /moved=/,
+  );
+
+  // must-still-fire: the refusal is real, not cosmetic — the session is still
+  // where step 1 put it.
+  await page.goto("/admin/agenda?view=list");
+  await expect(page.locator(`#session-${sessionId}`)).toContainText(timeLabel(empty!.time));
+
+  /* ── 3. "Move anyway" carries the force key through the same JS-off form ─ */
+  await save(occupied!.roomId, occupied!.time);
+  await page.getByRole("button", { name: "Move anyway" }).click();
+
+  await page.waitForURL(/moved=/, { timeout: 15_000 });
+  // `force` and `override` are separate keys on purpose (DECISIONS #70), and a
+  // forced move says so in its own banner rather than borrowing the advisory one.
+  expect(page.url()).toContain("warn=forced");
+  await page.goto("/admin/agenda?view=list");
+  await expect(page.locator(`#session-${sessionId}`)).toContainText(timeLabel(occupied!.time));
 
   await context.close();
 });

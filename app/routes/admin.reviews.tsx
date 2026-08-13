@@ -1008,7 +1008,7 @@ export function ReviewOperationsView({
                   <button className={GHOST}>Rename</button>
                 </form>
                 <ul className="mt-3 space-y-2 text-sm">
-                  {team.members.length === 0 ? <li className="text-gray-500">No reviewers assigned.</li> : team.members.map((member) => (
+                  {team.members.length === 0 ? <li className="text-gray-500">No reviewers assigned. Choose a reviewer below to add them to this team.</li> : team.members.map((member) => (
                     <li key={member.personId} className="flex items-center justify-between gap-2">
                       <span>{member.name ?? member.email}</span>
                       <form method="post">
@@ -1117,7 +1117,7 @@ export function ReviewOperationsView({
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-sm text-gray-500">No committee is assigned to this round yet.</p>
+                    <p className="text-sm text-gray-500">No committee is assigned to this round yet. A committee appears here after you assign submissions to a reviewer team.</p>
                   )}
                   <a href="#reviewer-teams" className="text-xs underline">Manage committee membership</a>
                 </div>

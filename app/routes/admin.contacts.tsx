@@ -743,7 +743,8 @@ function SavedSegments({ data, currentQuery }: { data: ContactsData; currentQuer
         </ul>
       ) : (
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          None yet. Filter the directory below, then save that view as a segment.
+          No saved segments yet. A segment is a saved filter over the directory; apply a filter
+          below, then choose Save as segment to return to it later.
         </p>
       )}
       <form method="post" className="flex flex-wrap items-end gap-2">

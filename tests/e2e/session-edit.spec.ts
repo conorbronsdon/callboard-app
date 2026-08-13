@@ -68,20 +68,77 @@ async function candidates(
   }));
 }
 
+/**
+ * Place a session, and PROVE it landed.
+ *
+ * The response used to be fired and forgotten, which was survivable while every
+ * placement was allowed. It is not survivable now: PR #152 refuses a move that
+ * would double-book a room or a person (DECISIONS #70) and re-renders the board
+ * with "Blocked: …" instead of redirecting. A refusal therefore left this test
+ * building assertions on a programme it had never actually built — which is
+ * exactly how it broke. The hard-coded 14:00 collided with a seeded Main Stage
+ * session, the placement was refused, the two sessions never overlapped, and the
+ * only symptom was a double-booking warning that failed to appear.
+ *
+ * A precondition that cannot fail out loud is not a precondition.
+ */
 async function scheduleAt(page: Page, sessionId: string, roomId: string, time: string) {
-  await page.request.post("/admin/agenda", {
+  const response = await page.request.post("/admin/agenda", {
     form: {
       intent: "schedule",
       sessionId,
       roomId,
       day: DAY,
       time,
-      durationMinutes: "60",
+      durationMinutes: "30",
       view: "list",
       returnDay: DAY,
     },
     maxRedirects: 0,
   });
+
+  if (response.status() !== 302) {
+    const reason =
+      (await response.text()).match(/Blocked:[^<]{0,200}/)?.[0] ?? "(no reason on the page)";
+    throw new Error(
+      `scheduling ${sessionId} into room ${roomId} at ${time} was refused — ${reason}`,
+    );
+  }
+}
+
+/**
+ * A time on DAY where EVERY one of `rooms` is empty.
+ *
+ * Derived from the board instead of named, because whether a given clock time is
+ * free is a property of the seed rather than of the product. What this test
+ * needs is not "14:00", it is "one hour in which two rooms are both available" —
+ * so it asks. A slot is 30 minutes, so a 30-minute session occupies exactly the
+ * cell it is dropped in and cannot spill into the next one.
+ *
+ * Each cell's markup runs from its own `data-slot` to its closing tag and
+ * contains no nested cell, so the non-greedy match per `<td>` is exact.
+ */
+async function freeSharedTime(page: Page, rooms: string[], day: string): Promise<string> {
+  const html = await (await page.request.get(`/admin/agenda?view=day&day=${day}`)).text();
+  const byTime = new Map<string, { seen: Set<string>; taken: Set<string> }>();
+
+  for (const match of html.matchAll(/<td[^>]*data-slot="([^"]+)"[^>]*>([\s\S]*?)<\/td>/g)) {
+    // `slot|<roomId>|<day>|<time>` — four fields, and the literal prefix matters:
+    // reading it as three silently made every roomId "slot", which matches no
+    // room and reported the day as fully booked.
+    const [, roomId, , time] = match[1].split("|");
+    if (!time || !rooms.includes(roomId)) continue;
+    const row = byTime.get(time) ?? { seen: new Set<string>(), taken: new Set<string>() };
+    row.seen.add(roomId);
+    if (match[2].includes("data-session-card")) row.taken.add(roomId);
+    byTime.set(time, row);
+  }
+
+  // Map iteration is document order, so this is the earliest such time.
+  for (const [time, row] of byTime) {
+    if (row.seen.size === rooms.length && row.taken.size === 0) return time;
+  }
+  throw new Error(`no time on ${day} leaves all of ${rooms.join(", ")} free`);
 }
 
 test("an organizer's title edit reaches the public schedule", async ({ page }) => {
@@ -129,9 +186,21 @@ test("assigning one speaker to two overlapping sessions raises the warning", asy
   const roomIds = attrValues(roomsHtml, "room-row");
   expect(roomIds.length).toBeGreaterThanOrEqual(2);
 
-  // Same hour, different rooms: overlapping in time, sharing nobody yet.
-  await scheduleAt(page, first, roomIds[0], "14:00");
-  await scheduleAt(page, second, roomIds[1], "14:00");
+  /*
+   * Same slot, different rooms: overlapping in time, sharing nobody yet — and
+   * deliberately NOT a room clash, so the only blocking conflict this test can
+   * create is the speaker one it is about.
+   *
+   * Worth being explicit about which law is which here, because #152 moved one
+   * of them and not the other. Room and speaker double-bookings are blocking on
+   * the AGENDA MOVE path: predicted before the write and refused unless forced.
+   * Putting a person on two sessions from the SESSION page is not that path —
+   * `admin.session.tsx` has no gate — so it still does what this test has always
+   * asserted: it warns, on the session and on the Conflicts view.
+   */
+  const when = await freeSharedTime(page, [roomIds[0], roomIds[1]], DAY);
+  await scheduleAt(page, first, roomIds[0], when);
+  await scheduleAt(page, second, roomIds[1], when);
 
   const onSecond = await candidates(page, second);
   const shared = (await candidates(page, first)).find((person) =>

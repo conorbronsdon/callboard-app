@@ -149,7 +149,10 @@ const PANEL = "rounded-lg border border-gray-200 p-4 dark:border-gray-800";
 function History({ runs }: { runs: SyncRun[] }) {
   if (runs.length === 0) {
     return (
-      <p className="text-xs text-gray-500">No sync history yet.</p>
+      <p className="text-xs text-gray-500">
+        No sync history yet. Every push to a connected tool is logged here with its result, so you
+        can see what left callboard and when.
+      </p>
     );
   }
   return (

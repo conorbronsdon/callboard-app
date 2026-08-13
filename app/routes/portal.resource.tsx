@@ -69,7 +69,10 @@ export default function PortalResource({ loaderData }: Route.ComponentProps) {
             dangerouslySetInnerHTML={{ __html: page.bodyHtml }}
           />
         ) : (
-          <p className="mt-4 text-sm text-gray-500">This page has no content yet.</p>
+          <p className="mt-4 text-sm text-gray-500">
+            This resource page has no written content yet. Notes from the programme team appear
+            here when they are added.
+          </p>
         )}
       </article>
 

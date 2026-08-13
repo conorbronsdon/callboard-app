@@ -253,7 +253,7 @@ describe("render", () => {
       order: 1,
     });
     const markup = await markupFor(await load(fixture.speakerIds[6]));
-    expect(markup).toContain("No biography has been added yet.");
+    expect(markup).toContain("Speakers write their own from the speaker portal");
     expect(markup).toContain("data-speaker-bio-empty");
     expect(markup).not.toContain("data-speaker-bio=\"");
   });

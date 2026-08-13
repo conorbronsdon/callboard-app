@@ -429,7 +429,8 @@ export function SessionScreen(data: SessionData) {
           <h3 className="mb-3 font-semibold">Speakers</h3>
           {data.participants.length === 0 ? (
             <p className="mb-4 rounded border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700">
-              No speakers are attached to this session yet.
+              No speakers are attached to this session yet. Speakers appear here when someone from
+              the event roster is added to the session.
             </p>
           ) : (
             <ul className="mb-4 space-y-2">
