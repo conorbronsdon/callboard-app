@@ -66,7 +66,7 @@ Suggested walkthrough:
 | Public submission | Five-step mobile-first SSR flow, drafts, email-verified account entry, abstract/video modes, validation, confirmation email, and portal redirect |
 | Submission decisions | Seven status views, staged accept/decline queues, bulk commit, filtering, drill-in, and manual additions |
 | Review operations | Standalone assigned-only reviewer workspace, organizer “view as reviewer,” multi-round weighted scoring, reviewer aggregates and completion progress, reviewer provisioning by email with an additive capability flag, team management, round/rubric setup (add/remove criterion rows, numeric or dropdown types, lock on first submitted score), per-round blinding, reviewer conflict-of-interest recusal, reviewer reminders, and both batch assignment and direct per-reviewer assignment |
-| Score reporting | Aggregate-score sorting in the submissions list, plus a reviewer score CSV export at `/admin/submissions/scores.csv` carrying per-round aggregates and one column per rubric criterion, including dropdown-answer distributions |
+| Score reporting | Aggregate-score sorting in the submissions list, plus a reviewer score CSV export at `/admin/submissions/scores.csv` carrying one column per round's aggregate, one column per dropdown criterion's answer distribution, reviewer comments, and the advisory AI-triage opinion kept in its own trailing columns |
 | AI first-pass triage | Advisory Workers AI triage on an abstract's detail page: a score, a queue recommendation, and a short rationale carrying the model label. It never writes a review, never changes a submission's status, and degrades to a visible "unavailable in this deployment" when no `AI` binding is present |
 | Speaker CRM | Organization-level contact directory spanning every event, with contact profiles, notes, tags, travel notes, CSV import (preview then commit), duplicate detection and merge, add-to-event, bulk email to a filtered selection, rollups for total contacts/events/returning contacts/top companies, savable named filter segments, and a sourcing pipeline (a kanban board over five fixed stages; each card moves either by dragging or by picking a stage and submitting) with a move-audit trail |
 | Files library | Organizer-side browser of every upload for an event, grouped into version chains (newest deliverable first), with per-file comments and a bulk ZIP download |
@@ -77,7 +77,7 @@ Suggested walkthrough:
 | Communications | Editable templates, confirmation email, task reminders, communication log, and ICS REQUEST/UPDATE/CANCEL lifecycle |
 | Agenda | List/day/week/track/room/conflict views, pointer-correct drag and drop, no-JavaScript fallback, room and speaker overlap detection, an “Auto-place remaining” action that fills unscheduled sessions into conflict-free room/time slots, room and track CRUD, organizer session editing with attributed revision history and one-click restore, publishing that holds until speakers have been informed with an explicit per-session override, and public schedule with ordered speaker/co-speaker names |
 | Speaker roster | Add and edit speakers, participation status, portal-invite send, CSV import, and portal-form custom fields from organizer assignment through speaker answers |
-| API | Scoped keys, consistent envelopes, sessions/speakers/metadata endpoints, OpenAPI document, and developer page |
+| API | Scoped keys across six independently grantable scopes (four read, two write — none cascade), consistent envelopes, sessions/speakers/metadata endpoints, OpenAPI document, and developer page |
 | Integrations | Byte-exact Accelevents CSV pair, optional API push when configured, non-blocking Airtable mirror, and built-in signed webhooks with optional Svix delivery |
 | Infrastructure | One Cloudflare Worker, D1, R2, React Router framework mode, Drizzle, Tailwind, Vitest, and Playwright |
 
@@ -238,6 +238,7 @@ command that reproduces it.
 | The deployed demo is up, seeded, and signing in | `npm run smoke:demo -- https://demo.callboardhq.com` |
 | The API is real, documented, and machine-readable | <https://demo.callboardhq.com/v1/openapi.json> and <https://demo.callboardhq.com/developers> |
 | An agent can orient itself without being told how | `/llms.txt` on any deployment (`app/routes/llms.txt.ts`) — the judge path in order, each brief feature's primary URL, and the API strip, as plain text |
+| An agent already scoped to one event gets an event-specific map, not just the platform tour | `/e/<slug>/llms.txt` (`app/routes/public.llms.ts`) — that event's public pages, its open calls with real form ids, its published sessions with real session ids, and API pointers using that event's real id |
 | The public schedule works with JavaScript disabled | Turn JS off and load <https://demo.callboardhq.com/e/frontier-ai-summit-2026/schedule> — search, day tabs, and the track/format/room facets are server-rendered |
 
 ### Measured latency
@@ -383,11 +384,16 @@ Playwright refuses every non-loopback `CALLBOARD_E2E_URL`. The suite mutates
 data and uploads files, and a local process cannot prove that a remote Worker
 has disabled real email. Run it only against a disposable local server.
 
-`npm run release:verify` runs the production build, unit/guard/type checks,
-migration-drift check, Playwright, and a guard that rejects mutable GitHub
-Action references. The committed CI workflow (`.github/workflows/check.yml`)
-runs the same gate plus a high/critical lockfile dependency audit in a
-separate job.
+`npm run release:verify` runs the production build, unit/guard/type checks (including
+a guard that rejects mutable GitHub Action references), a check that database
+schema code has not leaked into the client bundle, a migration-drift check,
+and Playwright. The committed CI workflow (`.github/workflows/check.yml`) runs
+equivalent build/type/guard, migration-drift, and Playwright checks across
+three jobs on every pull request and push to `main`, plus a high/critical
+lockfile dependency audit in a separate job — it does not run the
+client-bundle schema-leak check; that one runs locally and inside the
+isolated three-times-repeated gate below
+(`.github/workflows/repeat-release-gate.yml`).
 Generated migrations must be committed.
 
 Both deployed smoke profiles call `/ready`. The probe returns 503 unless
