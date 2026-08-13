@@ -20,6 +20,7 @@ import { requireAdmin } from "~/lib/auth/auth.server";
 import {
   BULK_AUDIENCES,
   BULK_CUSTOM_TEMPLATE_KEY,
+  hashRecipientIds,
   isBulkAudience,
   selectRecipients,
   validateCompose,
@@ -71,6 +72,14 @@ export interface ComposeData {
   sent: number | null;
   failed: number | null;
   selectionKey: string;
+  audienceVersion: string;
+  /**
+   * One-time submit token, minted fresh per loader render (issue #198). A
+   * client-side filter change never regenerates it — only a real navigation
+   * does — so two POSTs of the SAME rendered form (a double-click, a client
+   * retry) carry the identical nonce and the second is refused as a replay.
+   */
+  submitNonce: string;
 }
 
 export interface ComposeFormState {
@@ -185,6 +194,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<CommsData> 
     compose: {
       recipients: composeRecipients,
       filteredRecipientIds: filtered.map((recipient) => recipient.personId),
+      audienceVersion: hashRecipientIds(filtered.map((recipient) => recipient.personId)),
       audiences: BULK_AUDIENCES,
       audience,
       trackId,
@@ -197,6 +207,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<CommsData> 
       sent: url.searchParams.has("sent") ? Number(url.searchParams.get("sent")) : null,
       failed: url.searchParams.has("failed") ? Number(url.searchParams.get("failed")) : null,
       selectionKey: `${audience}:${trackId ?? ""}:${selectedTemplate?.key ?? "custom"}`,
+      submitNonce: crypto.randomUUID(),
     },
   };
 }
@@ -280,6 +291,21 @@ export async function action({ request }: Route.ActionArgs): Promise<CommsAction
   }
 
   if (intent === "send") {
+    const current = selectRecipients(recipients, form.audience, form.trackId);
+    const currentVersion = hashRecipientIds(current.map((recipient) => recipient.personId));
+    const postedVersion = String(formData.get("audienceVersion") ?? "").trim();
+    const postedCountRaw = Number(formData.get("audienceCount"));
+    const postedCount = Number.isInteger(postedCountRaw) && postedCountRaw >= 0
+      ? postedCountRaw
+      : 0;
+    if (!postedVersion || postedVersion !== currentVersion) {
+      return {
+        ok: false,
+        error: `Your recipient list changed (was ${postedCount}, now ${current.length}) — review and confirm again.`,
+        form,
+      };
+    }
+    const submitNonce = String(formData.get("submitNonce") ?? "").trim();
     const result = await sendBulkComm({
       eventId: event.id,
       event: eventContext,
@@ -292,6 +318,7 @@ export async function action({ request }: Route.ActionArgs): Promise<CommsAction
       origin,
       mailer: getMailer(),
       db,
+      idempotencyKey: submitNonce || undefined,
     });
     if (result.error) return { ok: false, error: result.error, form };
     return redirect(`/admin/comms?sent=${result.sent}&failed=${result.failed}`);
@@ -363,6 +390,9 @@ function ComposePanel({
    * re-filtering after typing a body would silently discard it.
    */
   const visibleRecipients = selectRecipients(compose.recipients, filterAudience, filterTrackId);
+  const audienceVersion = hashRecipientIds(
+    visibleRecipients.map((recipient) => recipient.personId),
+  );
   const selected = new Set(selectedIds);
   const selectedVisible = visibleRecipients.filter((recipient) => selected.has(recipient.personId));
   const preview = actionData?.ok && actionData.intent === "preview" ? actionData.preview : null;
@@ -468,6 +498,9 @@ function ComposePanel({
             <input type="hidden" name="audience" value={filterAudience} />
             <input type="hidden" name="trackId" value={filterTrackId} />
             <input type="hidden" name="templateKey" value={initialForm.templateKey} />
+            <input type="hidden" name="audienceVersion" value={audienceVersion} />
+            <input type="hidden" name="audienceCount" value={visibleRecipients.length} />
+            <input type="hidden" name="submitNonce" value={compose.submitNonce} />
 
             <fieldset>
               <legend className="text-sm font-semibold">Speakers</legend>

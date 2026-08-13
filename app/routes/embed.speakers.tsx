@@ -9,7 +9,6 @@
 import { EmbedShell } from "~/components/embed-shell";
 import { SpeakerMonogram } from "~/components/speaker-monogram";
 import { getDb } from "~/db/client.server";
-import { buildEmbedXml } from "~/lib/embeds";
 import { resolveEmbedOptions } from "~/lib/embeds.server";
 import {
   getPublicSpeakerEvent,
@@ -23,37 +22,25 @@ export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: event ? `Speakers — ${event}` : "Speakers — callboard" }];
 }
 
-async function loaderImpl({ params, request }: Route.LoaderArgs) {
+/*
+ * JSON/XML export for this widget is served from `workers/app.ts`
+ * (`resolveEmbedExportResponse`), never from this loader — see that
+ * function's doc comment for why a Response returned here would not reach
+ * the client verbatim.
+ */
+export async function loader({ params, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const { theme, track, accent, density, format, customCss, hiddenFields } =
-    await resolveEmbedOptions(params.slug, url, "speakers");
+  const { theme, track, accent, density, customCss, hiddenFields } = await resolveEmbedOptions(
+    params.slug,
+    url,
+    "speakers",
+  );
 
   const db = getDb();
   const event = await getPublicSpeakerEvent(db, params.slug);
   if (!event) throw new Response("Event not found", { status: 404 });
 
   const { speakers, total } = await listPublicSpeakers(db, event.id, "");
-  const hidden = new Set(hiddenFields);
-  const exportSpeakers = speakers.map((speaker) => ({
-    id: speaker.id,
-    name: speaker.displayName,
-    ...(!hidden.has("title") ? { title: speaker.title } : {}),
-    ...(!hidden.has("company") ? { company: speaker.company } : {}),
-    sessionCount: speaker.sessionCount,
-  }));
-
-  if (format === "json") {
-    return Response.json({
-      event: { name: event.name, slug: event.slug },
-      speakers: exportSpeakers,
-      total,
-    });
-  }
-  if (format === "xml") {
-    return new Response(buildEmbedXml("speakers", "speaker", exportSpeakers), {
-      headers: { "Content-Type": "application/xml; charset=utf-8" },
-    });
-  }
 
   return {
     event: { name: event.name, slug: event.slug },
@@ -75,10 +62,6 @@ async function loaderImpl({ params, request }: Route.LoaderArgs) {
     hiddenFields,
   };
 }
-
-export const loader = loaderImpl as (
-  args: Route.LoaderArgs,
-) => Promise<Exclude<Awaited<ReturnType<typeof loaderImpl>>, Response>>;
 
 export default function EmbedSpeakers({ loaderData }: Route.ComponentProps) {
   const { event, speakers, total, theme, accent, density, customCss, hiddenFields } =

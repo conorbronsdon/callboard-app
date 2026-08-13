@@ -11,14 +11,16 @@ import {
   people,
   sessionParticipants,
   sessions,
+  type Session,
 } from "~/db/schema";
 import {
   addSessionParticipant,
+  checkParticipantAddConflict,
   PARTICIPANT_ROLE_LABELS,
   removeSessionParticipant,
 } from "~/lib/admin/session-participants.server";
 import { recordSessionRevision } from "~/lib/admin/session-revisions.server";
-import { findOrCreatePerson } from "~/lib/auth/auth.server";
+import { findOrCreatePerson, normalizeEmail } from "~/lib/auth/auth.server";
 import {
   hydrateFieldRefs,
   toFormDefinition,
@@ -29,6 +31,7 @@ import {
 import { speakerVisibleStatus } from "~/lib/portal-progress";
 import { portalRecordContext } from "~/lib/portal/portal.server";
 import {
+  PARTICIPANT_CONFLICT_COPY,
   PROGRAMME_MISSING_COPY,
   SPEAKER_EDIT_LOCK_COPY,
   speakerEditLockReason,
@@ -208,22 +211,23 @@ export async function action({ request, params }: Route.ActionArgs) {
     (role) => role.enabled && role.key !== "speaker",
   );
   const db = getDb();
+  let participantProgramme: Session | null = null;
 
   if (
     (intent === "add-coauthor" || intent === "remove-coauthor") &&
     submission.status === "accepted"
   ) {
-    const programme = submission.composedIntoSessionId
-      ? await db.query.sessions.findFirst({
+    participantProgramme = submission.composedIntoSessionId
+      ? (await db.query.sessions.findFirst({
           where: and(
             eq(sessions.id, submission.composedIntoSessionId),
             eq(sessions.eventId, event.id),
             eq(sessions.isAbstract, false),
             isNull(sessions.deletedAt),
           ),
-        })
+        })) ?? null
       : null;
-    if (!programme) {
+    if (!participantProgramme) {
       return data(
         { ok: false as const, errors: { form: PROGRAMME_MISSING_COPY } },
         { status: 409 },
@@ -288,6 +292,24 @@ export async function action({ request, params }: Route.ActionArgs) {
         },
         { status: 400 },
       );
+    }
+
+    const existingPerson = await db.query.people.findFirst({
+      where: eq(people.email, normalizeEmail(email)),
+    });
+    if (participantProgramme && existingPerson) {
+      const conflictCheck = await checkParticipantAddConflict({
+        eventId: event.id,
+        programmeSessionId: participantProgramme.id,
+        personId: existingPerson.id,
+        personName: existingPerson.fullName ?? existingPerson.email,
+      });
+      if (conflictCheck.blocked) {
+        return data(
+          { ok: false as const, errors: { form: PARTICIPANT_CONFLICT_COPY } },
+          { status: 409 },
+        );
+      }
     }
 
     const person = await findOrCreatePerson(email, { fullName: name || null });

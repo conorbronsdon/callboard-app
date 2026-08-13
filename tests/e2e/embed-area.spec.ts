@@ -216,3 +216,65 @@ test("grab points at the dashboard, settings, and speakers pages jump straight t
   await expect(page).toHaveURL(/\/admin\/embeds\?w=speakers$/);
   await expect(page.getByTestId("embed-snippet-speakers")).toHaveValue(/<iframe src="/);
 });
+
+/*
+ * EMB-15 (issue #74): the JSON/XML formats the picker offers never actually
+ * worked. `?format=json`/`xml` return a Response from the widget's own
+ * loader, but React Router always renders that loader's UI component around
+ * a document request's result — the Response gets folded into `loaderData`
+ * instead of reaching the client verbatim, so the widget silently served its
+ * normal HTML page (JSON happened to carry an `event` key the component
+ * could read) or 500'd (XML did not). `resolveEmbedExportResponse` in
+ * `app/lib/embeds.server.ts` now answers these from the Worker's `fetch`
+ * handler, before React Router ever sees the request. This is the only test
+ * in the suite that hits the real route over real HTTP, through the actual
+ * local workerd dev server rather than calling a loader function directly —
+ * that distinction is exactly what let the original bug ship behind green
+ * unit tests.
+ */
+for (const widget of ["schedule", "agenda", "speakers", "gallery"] as const) {
+  test(`the ${widget} embed's JSON and XML export formats return real data, not the HTML widget`, async ({
+    request,
+  }) => {
+    const json = await request.get(`/embed/${EVENT_SLUG}/${widget}?format=json`);
+    expect(json.status()).toBe(200);
+    expect(json.headers()["content-type"]).toContain("application/json");
+    const body = await json.json();
+    const items = widget === "schedule" || widget === "agenda" ? body.sessions : body.speakers;
+    expect(Array.isArray(items)).toBe(true);
+    expect(items.length).toBeGreaterThan(0);
+
+    const xml = await request.get(`/embed/${EVENT_SLUG}/${widget}?format=xml`);
+    expect(xml.status()).toBe(200);
+    expect(xml.headers()["content-type"]).toContain("application/xml");
+    expect(await xml.text()).toMatch(/^<\?xml/);
+  });
+}
+
+test("a saved embed's Custom CSS renders on its live, stable URL", async ({ page }) => {
+  await enterOrganizerWorkspace(page);
+  await page.getByTestId("admin-nav-group-content").locator("summary").click();
+  await page.locator("header nav").getByRole("link", { name: "Embeds", exact: true }).click();
+
+  const name = `CSS embed ${RUN_ID}`;
+  // Custom CSS is only ever sourced from a saved, organizer-authenticated
+  // embed — never from a raw query parameter on a public URL (that would let
+  // anyone hand out an iframe src that hides or defaces the widget). The
+  // "Get Code" preview URL therefore never carries it; saving the embed and
+  // visiting its stable `?embed=` handle is the only path that applies it.
+  await page
+    .getByLabel("Custom CSS for Schedule")
+    .fill("body { background: rgb(1, 2, 3) !important; }");
+  await page.getByRole("button", { name: "Get Code for Schedule" }).click();
+  await page.getByLabel("Name for Schedule").fill(name);
+  await page.getByRole("button", { name: "Save this embed for Schedule", exact: true }).click();
+
+  const row = page.getByTestId("saved-embeds").locator("article", { hasText: name });
+  const liveUrl = await row.locator('a[href*="?embed="]').getAttribute("href");
+  expect(liveUrl).toBeTruthy();
+
+  await page.goto(liveUrl!);
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(
+    "rgb(1, 2, 3)",
+  );
+});

@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { sessions } from "~/db/schema";
+import { gateOverrides, sessionParticipants, sessions } from "~/db/schema";
 import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
@@ -59,6 +59,24 @@ async function post(id: string, fields: Record<string, string>) {
     fields,
   );
   return action(asActionArgs(request, id));
+}
+
+async function overlapProgrammeSessions() {
+  const first = await ctx.db.query.sessions.findFirst({
+    where: eq(sessions.id, fixture.programSessionIds[0]),
+  });
+  await ctx.db
+    .update(sessions)
+    .set({ startsAt: first!.startsAt, endsAt: first!.endsAt })
+    .where(eq(sessions.id, fixture.programSessionIds[1]));
+}
+
+async function participantIds(sessionId: string) {
+  const rows = await ctx.db
+    .select({ personId: sessionParticipants.personId })
+    .from(sessionParticipants)
+    .where(eq(sessionParticipants.sessionId, sessionId));
+  return rows.map((row) => row.personId);
 }
 
 describe("loader", () => {
@@ -355,6 +373,96 @@ describe("action: set-status", () => {
   });
 });
 
+describe("action: add-participant conflict gate", () => {
+  it("MUST FIRE: a composed abstract refuses a new public speaker conflict before writing", async () => {
+    await overlapProgrammeSessions();
+    const abstractId = fixture.abstractIds[0];
+    const programmeId = fixture.programSessionIds[0];
+
+    const result = await post(abstractId, {
+      intent: "add-participant",
+      personId: fixture.speakerIds[1],
+      role: "panelist",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("Speaker double-booked"),
+      blocked: {
+        personId: fixture.speakerIds[1],
+        role: "panelist",
+        reasons: [expect.stringContaining("Speaker double-booked")],
+      },
+    });
+    expect(await participantIds(abstractId)).not.toContain(fixture.speakerIds[1]);
+    expect(await participantIds(programmeId)).not.toContain(fixture.speakerIds[1]);
+    expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
+  });
+
+  it("MUST FIRE: force without a reason refuses the composed abstract write", async () => {
+    await overlapProgrammeSessions();
+    const abstractId = fixture.abstractIds[0];
+
+    const result = await post(abstractId, {
+      intent: "add-participant",
+      personId: fixture.speakerIds[1],
+      role: "panelist",
+      force: "1",
+      reason: "   ",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("reason"),
+    });
+    expect(await participantIds(abstractId)).not.toContain(fixture.speakerIds[1]);
+    expect(await participantIds(fixture.programSessionIds[0])).not.toContain(
+      fixture.speakerIds[1],
+    );
+    expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
+  });
+
+  it("MUST NOT FIRE: a reasoned force mirrors the speaker and audits the programme id", async () => {
+    await overlapProgrammeSessions();
+    const abstractId = fixture.abstractIds[0];
+    const programmeId = fixture.programSessionIds[0];
+
+    const response = await post(abstractId, {
+      intent: "add-participant",
+      personId: fixture.speakerIds[1],
+      role: "panelist",
+      force: "1",
+      reason: "Organizer confirmed the overlap.",
+    });
+
+    expect((response as Response).status).toBe(302);
+    expect(await participantIds(abstractId)).toContain(fixture.speakerIds[1]);
+    expect(await participantIds(programmeId)).toContain(fixture.speakerIds[1]);
+    expect(await ctx.db.select().from(gateOverrides)).toMatchObject([
+      {
+        kind: "participant_force",
+        reason: "Organizer confirmed the overlap.",
+        sessionId: programmeId,
+        overriddenByName: expect.any(String),
+      },
+    ]);
+    expect((await ctx.db.select().from(gateOverrides))[0].sessionId).not.toBe(abstractId);
+  });
+
+  it("MUST NOT FIRE: an abstract with no programme session keeps the existing add path", async () => {
+    const abstractId = fixture.abstractIds[3];
+    const response = await post(abstractId, {
+      intent: "add-participant",
+      personId: fixture.speakerIds[4],
+      role: "panelist",
+    });
+
+    expect((response as Response).status).toBe(302);
+    expect(await participantIds(abstractId)).toContain(fixture.speakerIds[4]);
+    expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
+  });
+});
+
 describe("safeReturnTo", () => {
   it("keeps same-origin paths and rejects everything else", () => {
     expect(safeReturnTo("/admin/submissions?tab=pending", "/fallback")).toBe(
@@ -368,6 +476,28 @@ describe("safeReturnTo", () => {
 });
 
 describe("render", () => {
+  it("renders a reasoned add-anyway form for a blocked participant", async () => {
+    const data = await load(fixture.abstractIds[0], "?tab=accepted");
+    const html = renderToStaticMarkup(
+      <SubmissionDetailView
+        {...data}
+        actionData={{
+          ok: false,
+          error: "Blocked: speaker conflict.",
+          blocked: {
+            personId: fixture.speakerIds[1],
+            role: "panelist",
+            reasons: ["Speaker double-booked"],
+          },
+        }}
+      />,
+    );
+
+    expect(html).toContain('name="force" value="1"');
+    expect(html).toMatch(/<input type="text" required=""[^>]*name="reason"/);
+    expect(html).toContain("Add anyway");
+  });
+
   it("renders every section from seeded data", async () => {
     const data = await load(fixture.abstractIds[0], "?tab=accepted");
     const props = { loaderData: data, actionData: undefined } as unknown as Parameters<

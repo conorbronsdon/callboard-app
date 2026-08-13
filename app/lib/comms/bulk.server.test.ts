@@ -229,30 +229,22 @@ describe("sendBulkComm", () => {
   });
 
   /*
-   * QUARANTINED — REAL BUG, reported to Conor, not fixed in this lane
-   * (blindspot audit). Filed as GitHub issue #198.
-   *
-   * `sendBulkComm` has no idempotency key, no dedup window, and no lock — two
-   * concurrent calls with the same recipients/subject/body each run to full
-   * completion independently. The UI's "Send emails" button
-   * (app/routes/admin.comms.tsx, `<button type="submit" name="intent"
-   * value="send">`) has no `disabled`/submitting-state guard, so a double
-   * click or a rapid double-Enter can fire two overlapping POSTs to the same
-   * action, which calls `sendBulkComm` twice. Both today complete, mailing
-   * every recipient TWICE and writing two comm-log rows each — an organizer
-   * sending a schedule-change notice to 40 speakers could double-email all of
-   * them from a single accidental double-click, with no error and no visible
-   * sign anything went wrong.
-   *
-   * This test does not assume a specific fix (a debounce window? a
-   * client-supplied idempotency key? disabling the button? all three?) — it
-   * only pins the observable, uncontroversial invariant that two concurrent
-   * identical bulk sends for the same event/recipients/subject/body within
-   * one request-handling window should not both actually dispatch mail. It
-   * currently fails: both calls succeed and every recipient receives two
-   * copies.
+   * Was QUARANTINED as a real, unfixed bug (blindspot audit, issue #198):
+   * `sendBulkComm` had no idempotency key, no dedup window, and no lock, so
+   * two concurrent calls with the same recipients/subject/body each ran to
+   * full completion independently — the UI's "Send emails" button has no
+   * `disabled`/submitting-state guard, so a double click or a rapid
+   * double-Enter fired two overlapping POSTs, mailing every recipient
+   * TWICE. Fixed by an idempotency claim: `sendBulkComm` inserts a row into
+   * `comm_batches` keyed on (event_id, idempotency_key) before it sends
+   * anything, and a second racing call with the same key loses the UNIQUE
+   * index race and is refused. The route supplies its own per-render submit
+   * nonce as that key; this test supplies none, so `hashBulkSendContent`
+   * derives one from the call's own content — which is what makes a bare
+   * `Promise.all([sendBulkComm(args), sendBulkComm(args)])` dedupe with no
+   * caller changes.
    */
-  it.skip("QUARANTINED (real bug, not fixed here — see #198): two concurrent identical sends do not both dispatch mail (double-submit has no idempotency protection)", async () => {
+  it("MUST-FIRE: two concurrent identical sends do not both dispatch mail (issue #198)", async () => {
     const mailer = new MemoryMailer();
     const args = {
       eventId: fixture.eventId,
@@ -275,5 +267,108 @@ describe("sendBulkComm", () => {
     const emailCounts = new Map<string, number>();
     for (const sent of mailer.sent) emailCounts.set(sent.to, (emailCounts.get(sent.to) ?? 0) + 1);
     expect([...emailCounts.values()], "no recipient should appear more than once").toEqual([1, 1, 1]);
+  });
+
+  it("MUST-NOT-FIRE: two DIFFERENT concurrent sends are unaffected by each other", async () => {
+    const mailer = new MemoryMailer();
+    const shared = {
+      eventId: fixture.eventId,
+      event: await eventContext(),
+      audience: "all_speakers" as const,
+      origin: "https://callboard.test",
+      mailer,
+      db: ctx.db,
+    };
+    const [first, second] = await Promise.all([
+      sendBulkComm({
+        ...shared,
+        recipients: [fixture.speakerIds[0]],
+        subject: "Reminder A",
+        body: "Body A",
+      }),
+      sendBulkComm({
+        ...shared,
+        recipients: [fixture.speakerIds[1]],
+        subject: "Reminder B",
+        body: "Body B",
+      }),
+    ]);
+    expect(first.sent).toBe(1);
+    expect(second.sent).toBe(1);
+    expect(mailer.sent).toHaveLength(2);
+  });
+
+  it("MUST-NOT-FIRE: identical content sent again after the dedup window is not blocked", async () => {
+    const mailer = new MemoryMailer();
+    const args = {
+      eventId: fixture.eventId,
+      event: await eventContext(),
+      recipients: [fixture.speakerIds[0]],
+      subject: "Weekly reminder",
+      body: "Same body every week on purpose.",
+      audience: "all_speakers" as const,
+      origin: "https://callboard.test",
+      mailer,
+      db: ctx.db,
+    };
+    const t0 = new Date("2032-01-01T00:00:00.000Z");
+    const first = await sendBulkComm({ ...args, now: t0 });
+    expect(first.sent).toBe(1);
+
+    // A second send with the identical content, well past the 30s dedup
+    // window (an organizer genuinely clicking "resend" again later) — the
+    // rolling window must not turn into a permanent "this content is burned".
+    const second = await sendBulkComm({
+      ...args,
+      now: new Date(t0.getTime() + 60_000),
+    });
+    expect(second.sent, second.error ?? "expected the later resend to succeed").toBe(1);
+    expect(mailer.sent).toHaveLength(2);
+  });
+
+  it("MUST-FIRE: an explicit idempotencyKey (the route's submit nonce) dedupes a replay", async () => {
+    const mailer = new MemoryMailer();
+    const args = {
+      eventId: fixture.eventId,
+      event: await eventContext(),
+      recipients: [fixture.speakerIds[0]],
+      subject: "Subject",
+      body: "Body",
+      audience: "all_speakers" as const,
+      origin: "https://callboard.test",
+      mailer,
+      db: ctx.db,
+      idempotencyKey: "compose-form-nonce-1",
+    };
+    const first = await sendBulkComm(args);
+    expect(first.sent).toBe(1);
+
+    const replay = await sendBulkComm(args);
+    expect(replay.sent).toBe(0);
+    expect(replay.error).toMatch(/already sent/i);
+    expect(mailer.sent).toHaveLength(1);
+  });
+
+  it("MUST-NOT-FIRE complement: a FRESH submit nonce sends again even with identical content", async () => {
+    const mailer = new MemoryMailer();
+    const base = {
+      eventId: fixture.eventId,
+      event: await eventContext(),
+      recipients: [fixture.speakerIds[0]],
+      subject: "Subject",
+      body: "Body",
+      audience: "all_speakers" as const,
+      origin: "https://callboard.test",
+      mailer,
+      db: ctx.db,
+    };
+    const first = await sendBulkComm({ ...base, idempotencyKey: "nonce-render-1" });
+    expect(first.sent).toBe(1);
+
+    // A page reload mints a NEW nonce (the route regenerates it in the
+    // loader), so this is not a replay even though every other field matches.
+    const second = await sendBulkComm({ ...base, idempotencyKey: "nonce-render-2" });
+    expect(second.sent, second.error ?? "expected a fresh nonce to send").toBe(1);
+    expect(mailer.sent).toHaveLength(2);
   });
 });

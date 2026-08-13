@@ -1,8 +1,9 @@
 /** Database loading, preview, and comm-log-decorated delivery for bulk email. */
-import { and, asc, eq, notInArray } from "drizzle-orm";
+import { and, asc, eq, lt, notInArray } from "drizzle-orm";
 
 import { getDb, type DB } from "~/db/client.server";
 import {
+  commBatches,
   eventPeople,
   forms,
   people,
@@ -17,6 +18,7 @@ import {
   BULK_CUSTOM_TEMPLATE_KEY,
   MAX_BULK_RECIPIENTS,
   buildRecipientContext,
+  hashBulkSendContent,
   type BulkAudience,
   type BulkEventContext,
   type BulkRecipient,
@@ -191,6 +193,35 @@ export function nonThrowing(mailer: Mailer): Mailer {
   };
 }
 
+/**
+ * Rolling dedup window for the idempotency claim below (issue #198). Long
+ * enough to absorb a double-click or a client's automatic retry of a slow
+ * POST; short enough that a genuine deliberate resend minutes later (an
+ * organizer clicking "resend invite" again) is never blocked by it.
+ */
+const COMM_BATCH_DEDUP_WINDOW_MS = 30_000;
+
+/**
+ * True for the specific failure a UNIQUE index rejection produces — never a
+ * generic DB-error catch-all, so an unrelated failure surfaces as itself
+ * instead of being mislabeled "already sent". Drizzle wraps the driver's
+ * error ("Failed query: insert into ...") with the real SQLite/D1 message
+ * ("UNIQUE constraint failed: ...") on `.cause`, so this walks the cause
+ * chain rather than checking `error.message` alone.
+ */
+function isUniqueConstraintError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth++) {
+    if (current instanceof Error) {
+      if (/unique constraint/i.test(current.message)) return true;
+      current = current.cause;
+    } else {
+      break;
+    }
+  }
+  return false;
+}
+
 export async function sendBulkComm(options: {
   eventId: string;
   event: BulkEventContext;
@@ -205,6 +236,13 @@ export async function sendBulkComm(options: {
   mailer: Mailer;
   db?: DB;
   now?: Date;
+  /**
+   * Caller-supplied dedup key (the compose route's per-render submit nonce).
+   * When omitted, a deterministic hash of the send's own content stands in —
+   * that fallback is what lets two directly-called `sendBulkComm(args)`
+   * with identical args dedupe with no caller changes at all.
+   */
+  idempotencyKey?: string;
 }): Promise<BulkSendResult> {
   const db = options.db ?? getDb();
   const recipientIds = [...new Set(options.recipients)];
@@ -231,8 +269,45 @@ export async function sendBulkComm(options: {
     );
   }
 
-  const bulkId = crypto.randomUUID();
   const now = options.now ?? new Date();
+
+  /*
+   * Idempotency claim. A concurrent duplicate (the double-click PR #208
+   * reproduced, and issue #198 filed) must be rejected atomically — D1 has
+   * no interactive transactions, so the atomicity comes from the UNIQUE
+   * index on (event_id, idempotency_key) rejecting the insert itself, not
+   * from a check-then-act SELECT that a second racing call could also pass.
+   * The stale-claim delete keeps this a ROLLING window rather than a
+   * permanent "this content may only ever be sent once".
+   */
+  const idempotencyKey = options.idempotencyKey?.trim() || hashBulkSendContent({
+    eventId: options.eventId,
+    recipients: recipientIds,
+    subject: options.subject,
+    body: options.body,
+    audience: options.audience,
+  });
+  await db
+    .delete(commBatches)
+    .where(
+      and(
+        eq(commBatches.eventId, options.eventId),
+        eq(commBatches.idempotencyKey, idempotencyKey),
+        lt(commBatches.createdAt, new Date(now.getTime() - COMM_BATCH_DEDUP_WINDOW_MS)),
+      ),
+    );
+  try {
+    await db.insert(commBatches).values({ eventId: options.eventId, idempotencyKey });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return rejected(
+        "This batch was already sent. Wait a moment and try again if you meant to resend it.",
+      );
+    }
+    throw error;
+  }
+
+  const bulkId = crypto.randomUUID();
   const rows: BulkSendRow[] = [];
   for (const personId of recipientIds) {
     const recipient = byId.get(personId)!;

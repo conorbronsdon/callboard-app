@@ -16,7 +16,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { sessionParticipants, sessions } from "~/db/schema";
+import { gateOverrides, sessionParticipants, sessions } from "~/db/schema";
 import { MemoryMailer } from "~/lib/mail/mailer";
 import { commitQueues } from "~/lib/review/commit.server";
 import { signedInGet, signedInPost } from "~/test/auth";
@@ -233,6 +233,7 @@ describe("set-published refuses an uninformed session unless overridden", () => 
       sessionId: held,
       published: "1",
       override: "1",
+      reason: "Speaker confirmed by phone.",
       view: "list",
     });
     expect(response).toBeInstanceOf(Response);
@@ -240,6 +241,34 @@ describe("set-published refuses an uninformed session unless overridden", () => 
     const row = await rowFor(held);
     expect(row?.isPublic).toBe(true);
     expect(row?.publishedAt).toBeInstanceOf(Date);
+    expect(await ctx.db.select().from(gateOverrides)).toMatchObject([
+      {
+        kind: "publish_override",
+        reason: "Speaker confirmed by phone.",
+        sessionId: held,
+        overriddenByName: expect.any(String),
+      },
+    ]);
+  });
+
+  it("MUST FIRE: publish override without a reason is refused and writes nothing", async () => {
+    const held = await addProgrammeSession({
+      title: "Override needs an explanation",
+      informed: false,
+      withAbstract: true,
+    });
+    const result = (await post({
+      intent: "set-published",
+      sessionId: held,
+      published: "1",
+      override: "1",
+      reason: "   ",
+      view: "list",
+    })) as { ok: false; error: string };
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("reason") });
+    expect((await rowFor(held))?.isPublic).toBe(false);
+    expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
   });
 
   it("MUST NOT FIRE: an informed session publishes without any override", async () => {

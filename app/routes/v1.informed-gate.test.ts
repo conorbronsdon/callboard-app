@@ -13,7 +13,13 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { sessionParticipants, sessions } from "~/db/schema";
+import {
+  gateOverrides,
+  sessionParticipants,
+  sessions,
+  webhookDeliveries,
+  webhooks,
+} from "~/db/schema";
 import { mintApiKey } from "~/lib/api/keys.server";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
@@ -240,13 +246,42 @@ describe("v1: flipping is_public true obeys the informed gate", () => {
       sessionAction as Handler,
       request("PUT", eventPath(`/sessions/${id}`), {
         key: writeKey,
-        body: { is_public: true, publish_override: true },
+        body: {
+          is_public: true,
+          publish_override: true,
+          publish_override_reason: "Speaker confirmed by phone.",
+        },
       }),
       { eventId: fixture.eventId, sessionId: id },
     );
 
     expect(response.status).toBe(200);
     expect((await rowFor(id))?.isPublic).toBe(true);
+    expect(await ctx.db.select().from(gateOverrides)).toMatchObject([
+      {
+        kind: "publish_override",
+        reason: "Speaker confirmed by phone.",
+        sessionId: id,
+        overriddenByName: 'API key "read-write"',
+      },
+    ]);
+  });
+
+  it("MUST FIRE: publish_override without its reason is rejected before the write", async () => {
+    const id = await addProgrammeSession(false);
+    const response = await call(
+      sessionAction as Handler,
+      request("PUT", eventPath(`/sessions/${id}`), {
+        key: writeKey,
+        body: { is_public: true, publish_override: true },
+      }),
+      { eventId: fixture.eventId, sessionId: id },
+    );
+
+    expect(response.status).toBe(400);
+    expect((await json(response)).message).toContain("publish_override_reason");
+    expect((await rowFor(id))?.isPublic).toBe(false);
+    expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
   });
 
   it("MUST NOT FIRE: the gate never blocks UNpublishing through v1", async () => {
@@ -275,7 +310,11 @@ describe("v1: flipping is_public true obeys the informed gate", () => {
       sessionAction as Handler,
       request("PUT", eventPath(`/sessions/${id}`), {
         key: writeKey,
-        body: { is_public: true, publish_override: true },
+        body: {
+          is_public: true,
+          publish_override: true,
+          publish_override_reason: "Speaker confirmed by phone.",
+        },
       }),
       { eventId: fixture.eventId, sessionId: id },
     );
@@ -361,13 +400,49 @@ describe("v1: publishing obeys the blocking-conflict gate (DECISIONS #70)", () =
       sessionAction as Handler,
       request("PUT", eventPath(`/sessions/${first}`), {
         key: writeKey,
-        body: { is_public: true, publish_force: true },
+        body: {
+          is_public: true,
+          publish_force: true,
+          publish_force_reason: "Speaker accepted the clash.",
+        },
       }),
       { eventId: fixture.eventId, sessionId: first },
     );
 
     expect(response.status).toBe(200);
     expect((await rowFor(first))?.isPublic).toBe(true);
+    expect(await ctx.db.select().from(gateOverrides)).toMatchObject([
+      {
+        kind: "publish_force",
+        reason: "Speaker accepted the clash.",
+        sessionId: first,
+        overriddenByName: 'API key "read-write"',
+      },
+    ]);
+  });
+
+  it("MUST FIRE: publish_force without a reason refuses before write or webhook emission", async () => {
+    const { first } = await addSpeakerClash();
+    await ctx.db.insert(webhooks).values({
+      id: "reason-gate-endpoint",
+      url: "https://receiver.test/hooks/callboard",
+      secret: "reason-gate-secret",
+    });
+
+    const response = await call(
+      sessionAction as Handler,
+      request("PUT", eventPath(`/sessions/${first}`), {
+        key: writeKey,
+        body: { is_public: true, publish_force: true },
+      }),
+      { eventId: fixture.eventId, sessionId: first },
+    );
+
+    expect(response.status).toBe(400);
+    expect((await json(response)).message).toContain("publish_force_reason");
+    expect((await rowFor(first))?.isPublic).toBe(false);
+    expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
+    expect(await ctx.db.select().from(webhookDeliveries)).toEqual([]);
   });
 
   it("MUST NOT FIRE: a same-track overlap with different rooms and speakers stays advisory", async () => {
@@ -441,7 +516,11 @@ describe("v1: publishing obeys the blocking-conflict gate (DECISIONS #70)", () =
       sessionAction as Handler,
       request("PUT", eventPath(`/sessions/${first}`), {
         key: writeKey,
-        body: { is_public: true, publish_force: true },
+        body: {
+          is_public: true,
+          publish_force: true,
+          publish_force_reason: "Speaker accepted the clash.",
+        },
       }),
       { eventId: fixture.eventId, sessionId: first },
     );

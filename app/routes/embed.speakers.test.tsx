@@ -75,31 +75,14 @@ async function saveEmbed(overrides: Partial<SavedEmbed> = {}): Promise<SavedEmbe
 }
 
 describe("embed speakers loader", () => {
-  it("MUST FIRE: JSON and XML export published speaker fields", async () => {
-    const json = (await loader(args("?format=json"))) as unknown;
-    expect(json).toBeInstanceOf(Response);
-    if (!(json instanceof Response)) throw new Error("Expected JSON response");
-    expect(json.headers.get("content-type")).toContain("application/json");
-    const body = (await json.json()) as { speakers: Array<Record<string, unknown>> };
-    expect(body.speakers[0]).toMatchObject({
-      id: expect.any(String),
-      name: expect.any(String),
-      sessionCount: expect.any(Number),
-    });
-    expect(body.speakers[0]).toHaveProperty("title");
-    expect(body.speakers[0]).toHaveProperty("company");
-
-    const xml = (await loader(args("?format=xml"))) as unknown;
-    if (!(xml instanceof Response)) throw new Error("Expected XML response");
-    expect(xml.headers.get("content-type")).toContain("application/xml");
-    expect(await xml.text()).toContain("<speakers><speaker><id>");
-  });
-
-  it("MUST NOT FIRE: hidden title is absent from JSON and HTML, but visible by default", async () => {
-    const hiddenJson = (await loader(args("?format=json&hide=title"))) as unknown;
-    if (!(hiddenJson instanceof Response)) throw new Error("Expected JSON response");
-    const body = (await hiddenJson.json()) as { speakers: Array<Record<string, unknown>> };
-    expect(body.speakers[0]).not.toHaveProperty("title");
+  /*
+   * JSON/XML export moved to `resolveEmbedExportResponse`
+   * (app/lib/embeds.server.test.ts) — the function `workers/app.ts` actually
+   * calls before this loader ever runs. See that function's doc comment:
+   * this route's loader can no longer return a Response and have it reach
+   * the client verbatim (EMB-15, issue #74).
+   */
+  it("MUST NOT FIRE: hidden title stays absent from HTML, visible by default otherwise", async () => {
     expect(markup(await loader(args()) as LoaderData)).toContain("data-speaker-title");
     expect(markup(await loader(args("?hide=title")) as LoaderData)).not.toContain(
       "data-speaker-title",
@@ -186,8 +169,5 @@ describe("embed speakers render", () => {
     const html = markup(await loader(args()));
     expect(html).toContain("No speakers are published yet.");
     expect(html).not.toContain("data-embed-speaker");
-    const response = (await loader(args("?format=json"))) as unknown;
-    if (!(response instanceof Response)) throw new Error("Expected JSON response");
-    await expect(response.json()).resolves.toMatchObject({ speakers: [], total: 0 });
   });
 });

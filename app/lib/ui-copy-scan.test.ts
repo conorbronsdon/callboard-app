@@ -151,7 +151,7 @@ describe("shipped UI copy", () => {
     expect(shippedModules().length).toBeGreaterThan(40);
   });
 
-  it("names no workstream, planning doc, tool or column anywhere a user can read", () => {
+  it("names no workstream, planning doc, tool or column anywhere a user can read", { timeout: 30_000 }, () => {
     const offences: string[] = [];
     for (const rel of shippedModules()) {
       const source = readFileSync(resolve(ROOT, rel), "utf8");

@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { people, sessionParticipants, sessions } from "~/db/schema";
+import { gateOverrides, people, sessionParticipants, sessions } from "~/db/schema";
 import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { EVENT_SLUG, SPEAKERS, seedDemoFixture, type DemoFixture } from "~/test/fixtures";
@@ -228,6 +228,7 @@ describe("add / remove participant (SPK-11)", () => {
       personId: fixture.speakerIds[1],
       role: "panelist",
       force: "1",
+      reason: "Speaker approved the overlap.",
     });
 
     expect((response as Response).status).toBe(302);
@@ -235,6 +236,31 @@ describe("add / remove participant (SPK-11)", () => {
     expect(await participantIds(fixture.programSessionIds[0])).toContain(
       fixture.speakerIds[1],
     );
+    expect(await ctx.db.select().from(gateOverrides)).toMatchObject([
+      {
+        kind: "participant_force",
+        reason: "Speaker approved the overlap.",
+        sessionId: fixture.programSessionIds[0],
+        overriddenByName: expect.any(String),
+      },
+    ]);
+  });
+
+  it("MUST FIRE: force without a reason refuses the speaker and writes nothing", async () => {
+    await overlapSecondWithFirst();
+    const result = await post(fixture.programSessionIds[0], {
+      intent: "add-participant",
+      personId: fixture.speakerIds[1],
+      role: "panelist",
+      force: "1",
+      reason: " ",
+    });
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("reason") });
+    expect(await participantIds(fixture.programSessionIds[0])).not.toContain(
+      fixture.speakerIds[1],
+    );
+    expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
   });
 
   it("MUST NOT FIRE: two unpublished sessions retain warning-only assignment", async () => {
@@ -409,6 +435,7 @@ describe("double-booking (AIA-04)", () => {
       personId: fixture.speakerIds[1],
       role: "panelist",
       force: "1",
+      reason: "Speaker approved the overlap.",
     });
 
     const data = await load(fixture.programSessionIds[0]);
@@ -463,6 +490,8 @@ describe("render", () => {
 
     expect(html).toContain("Add anyway");
     expect(html).toContain('name="force" value="1"');
+    expect(html).toContain('name="reason"');
+    expect(html).toContain("required");
     expect(html).toContain(`name="personId" value="${fixture.speakerIds[1]}"`);
     expect(html).toContain('name="role" value="panelist"');
   });
@@ -474,6 +503,7 @@ describe("render", () => {
       personId: fixture.speakerIds[1],
       role: "panelist",
       force: "1",
+      reason: "Speaker approved the overlap.",
     });
     const data = await load(fixture.programSessionIds[0]);
     const html = renderToStaticMarkup(<SessionScreen {...data} />);
@@ -484,6 +514,8 @@ describe("render", () => {
     expect(html).toContain('value="edit-session"');
     expect(html).toContain('value="remove-participant"');
     expect(html).toContain(SPEAKERS[1].name);
+    expect(html).toContain("Forced by");
+    expect(html).toContain("Speaker approved the overlap.");
   });
 
   it("MUST NOT FIRE: no conflict banner on a clean session", async () => {
@@ -491,5 +523,6 @@ describe("render", () => {
     const html = renderToStaticMarkup(<SessionScreen {...data} />);
     expect(html).toContain("data-session-edit-form");
     expect(html).not.toContain("data-session-conflict");
+    expect(html).not.toContain("Forced by");
   });
 });

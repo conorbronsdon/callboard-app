@@ -16,6 +16,12 @@ import {
   type ParticipantRole,
 } from "~/db/schema";
 import { resolveLinkedSession } from "~/lib/admin/session-edit.server";
+import {
+  blockingConflicts,
+  conflictLabel,
+  findConflicts,
+} from "~/lib/agenda/conflicts";
+import { loadProgramme } from "~/lib/agenda/programme.server";
 
 type BatchArgument = Parameters<DB["batch"]>[0];
 type BatchStatement = BatchArgument[number];
@@ -27,6 +33,51 @@ export const PARTICIPANT_ROLE_LABELS: Record<ParticipantRole, string> = {
   moderator: "Moderator",
   panelist: "Panelist",
 };
+
+export interface ParticipantConflictCheck {
+  blocked: boolean;
+  reasons: string[];
+}
+
+/**
+ * Predict-before-write: would adding this person create a new speaker conflict
+ * against a session that is already public? Existing clashes between other
+ * participants are never attributed to this hypothetical add.
+ */
+export async function checkParticipantAddConflict(input: {
+  eventId: string;
+  programmeSessionId: string;
+  personId: string;
+  personName: string;
+}): Promise<ParticipantConflictCheck> {
+  const before = await loadProgramme(input.eventId);
+  const target = before.sessions.find((session) => session.id === input.programmeSessionId);
+  if (!target || target.participants.some((participant) => participant.id === input.personId)) {
+    return { blocked: false, reasons: [] };
+  }
+
+  const hypothetical = before.sessions.map((session) =>
+    session.id === input.programmeSessionId
+      ? {
+          ...session,
+          participants: [
+            ...session.participants,
+            { id: input.personId, name: input.personName },
+          ],
+        }
+      : session,
+  );
+  const newBlocking = blockingConflicts(findConflicts(hypothetical)).filter(
+    (conflict) => conflict.kind === "speaker" && conflict.resourceId === input.personId,
+  );
+  const isPublicById = new Map(
+    before.sessions.map((session) => [session.id, session.isPublic]),
+  );
+  const blocked = newBlocking.some(
+    (conflict) => isPublicById.get(conflict.a.id) || isPublicById.get(conflict.b.id),
+  );
+  return { blocked, reasons: newBlocking.map(conflictLabel) };
+}
 
 function isParticipantRole(role: string): role is ParticipantRole {
   return PARTICIPANT_ROLES.some((candidate) => candidate === role);

@@ -186,7 +186,7 @@ describe("session webhook write paths", () => {
       created.value.id,
       { isPublic: true },
       null,
-      true,
+      { publishOverride: true, actor: { personId: null, name: "Webhook test" } },
     )).ok).toBe(true);
 
     const rows = await deliveryRows();
@@ -234,7 +234,9 @@ describe("session webhook write paths", () => {
     const { first } = await addOverlappingSpeakerPair();
     await clearDeliveries();
 
-    const result = await updateSession(fixture.eventId, first, { isPublic: true }, null, false, false);
+    const result = await updateSession(fixture.eventId, first, { isPublic: true }, null, {
+      actor: { personId: null, name: "Webhook test" },
+    });
     expect(result.ok).toBe(false);
 
     expect(await deliveryRows()).toEqual([]);
@@ -244,7 +246,11 @@ describe("session webhook write paths", () => {
     const { first } = await addOverlappingSpeakerPair();
     await clearDeliveries();
 
-    const result = await updateSession(fixture.eventId, first, { isPublic: true }, null, false, true);
+    const result = await updateSession(fixture.eventId, first, { isPublic: true }, null, {
+      publishForce: true,
+      publishForceReason: "Speaker accepted the clash.",
+      actor: { personId: null, name: "Webhook test" },
+    });
     expect(result.ok).toBe(true);
 
     expect(await deliveryRows()).toMatchObject([

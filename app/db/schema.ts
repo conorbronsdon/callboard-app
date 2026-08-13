@@ -94,6 +94,14 @@ export const PARTICIPANT_ROLES = [
 ] as const;
 export type ParticipantRole = (typeof PARTICIPANT_ROLES)[number];
 
+export const GATE_OVERRIDE_KINDS = [
+  "schedule_force",
+  "publish_override",
+  "publish_force",
+  "participant_force",
+] as const;
+export type GateOverrideKind = (typeof GATE_OVERRIDE_KINDS)[number];
+
 /** What an uploaded R2 object is attached to. Uploads are never orphaned. */
 export const UPLOAD_OWNER_TYPES = ["person", "session"] as const;
 export type UploadOwnerType = (typeof UPLOAD_OWNER_TYPES)[number];
@@ -728,6 +736,30 @@ export const sessionRevisions = sqliteTable(
   (t) => [index("session_revisions_session_idx").on(t.sessionId, t.createdAt)],
 );
 
+/** Append-only organizer/API audit trail for a gate that was explicitly bypassed. */
+export const gateOverrides = sqliteTable(
+  "gate_overrides",
+  {
+    id: uuid(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: GATE_OVERRIDE_KINDS }).notNull(),
+    reason: text("reason").notNull(),
+    // Nullable FK plus a required snapshot keeps attribution after delete/merge
+    // and also supports API-key actors that have no Person row.
+    overriddenByPersonId: text("overridden_by_person_id").references(() => people.id, {
+      onDelete: "set null",
+    }),
+    overriddenByName: text("overridden_by_name").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("gate_overrides_session_idx").on(t.sessionId, t.createdAt)],
+);
+
 export const sessionTags = sqliteTable(
   "session_tags",
   {
@@ -1035,6 +1067,29 @@ export const commLog = sqliteTable(
     index("comm_log_event_idx").on(t.eventId),
     index("comm_log_person_idx").on(t.personId),
   ],
+);
+
+/**
+ * Idempotency claims for `sendBulkComm` (issue #198). A row here is a
+ * short-lived lock: inserting one before dispatch, and letting the UNIQUE
+ * index reject a concurrent duplicate, is what makes the check atomic
+ * without D1 interactive transactions. `sendBulkComm` deletes any row past
+ * the dedup window before it tries to claim, so this is a rolling window,
+ * never a permanent "this content can only ever be sent once" — a genuine
+ * later resend (an organizer clicking "resend invite" again tomorrow) is
+ * unaffected.
+ */
+export const commBatches = sqliteTable(
+  "comm_batches",
+  {
+    id: uuid(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("comm_batches_event_key_idx").on(t.eventId, t.idempotencyKey)],
 );
 
 /* ----------------------------------------------------------- resources */

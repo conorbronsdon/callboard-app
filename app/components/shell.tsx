@@ -3,7 +3,7 @@
  * must stay fast.
  */
 import { useEffect } from "react";
-import { Form, Link, NavLink, useLocation } from "react-router";
+import { Form, Link, NavLink, useLocation, useNavigation } from "react-router";
 
 import {
   isAdminNavGroup,
@@ -347,21 +347,84 @@ export function SiteFooter({ measure = "max-w-6xl" }: { measure?: string }) {
 }
 
 /**
+ * Fires the instant ANY other `<form method="post">` submits, before this
+ * module's React state has had a chance to re-render. A capture-phase
+ * `document` listener runs synchronously as part of the SAME browser event
+ * dispatch that starts the sibling submission — unlike a `disabled` attribute
+ * driven by `useNavigation()`, there is no render-commit gap for a second,
+ * near-simultaneous click to slip through. Cleared once that navigation
+ * settles back to idle (see `SignOutButton`). Client-only; safe as a no-op
+ * during SSR since `document` never exists there.
+ */
+const otherMutationInFlight = { current: false };
+let guardInstalled = false;
+function installMutationRaceGuard() {
+  if (guardInstalled || typeof document === "undefined") return;
+  guardInstalled = true;
+  document.addEventListener(
+    "submit",
+    (event) => {
+      const form = event.target;
+      if (form instanceof HTMLFormElement && form.getAttribute("action") !== "/logout") {
+        otherMutationInFlight.current = true;
+      }
+    },
+    true,
+  );
+}
+
+/**
  * One-click sign-out.
  *
  * It is a POST — signing out is a state change and must not be reachable by a
  * link prefetcher following a GET — but it costs the user a single click. The
  * `/logout` page still exists as the no-JS fallback for a direct visit; nothing
  * in the app routes a person through it.
+ *
+ * Two-layered guard against racing an in-flight mutation. This button lives
+ * in the persistent nav next to every admin/portal action, so a click here
+ * has always been able to win React Router's navigation-cancellation race
+ * against an unrelated pending submission (e.g. "Open form") and silently
+ * drop it before its request ever reached the network — confirmed via
+ * request tracing, and confirmed AGAIN as a still-flaky residual gap once
+ * `disabled` alone (driven by `useNavigation()`) was measured under two
+ * genuinely-simultaneous clicks: React's re-render lands one tick after the
+ * DOM event that triggers it, and a fast-enough second click's actionability
+ * check can land inside that gap.
+ * 1. `disabled`/`aria-disabled` from `useNavigation()` — the visible state,
+ *    correct for every human click.
+ * 2. `onSubmit` checks the synchronous capture-phase flag above and calls
+ *    `preventDefault()` — closes the same-tick gap the render-driven
+ *    `disabled` attribute cannot. Both layers read the same underlying fact;
+ *    the second one just doesn't wait for a render to know it.
  */
 export function SignOutButton({ className }: { className?: string }) {
+  const navigation = useNavigation();
+  const busy = navigation.state !== "idle";
+
+  useEffect(() => {
+    installMutationRaceGuard();
+  }, []);
+  useEffect(() => {
+    if (navigation.state === "idle") otherMutationInFlight.current = false;
+  }, [navigation.state]);
+
   return (
-    <Form method="post" action="/logout">
+    <Form
+      method="post"
+      action="/logout"
+      onSubmit={(event) => {
+        if (otherMutationInFlight.current) event.preventDefault();
+      }}
+    >
       <button
         type="submit"
+        disabled={busy}
+        aria-disabled={busy}
         className={
-          className ??
-          "text-gray-600 underline-offset-4 hover:text-gray-900 hover:underline dark:text-gray-400 dark:hover:text-gray-100"
+          (className ??
+            "text-gray-600 underline-offset-4 hover:text-gray-900 hover:underline dark:text-gray-400 dark:hover:text-gray-100") +
+          (busy ? " cursor-not-allowed opacity-50" : "")
         }
         data-testid="sign-out"
       >

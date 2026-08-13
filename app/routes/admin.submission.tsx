@@ -65,9 +65,14 @@ import {
   tracks,
   type SessionStatus,
 } from "~/db/schema";
-import { updateSessionContent } from "~/lib/admin/session-edit.server";
+import {
+  resolveLinkedSession,
+  updateSessionContent,
+} from "~/lib/admin/session-edit.server";
+import { recordGateOverride } from "~/lib/admin/gate-overrides.server";
 import {
   addSessionParticipant,
+  checkParticipantAddConflict,
   PARTICIPANT_ROLE_LABELS,
   removeSessionParticipant,
 } from "~/lib/admin/session-participants.server";
@@ -885,13 +890,59 @@ export async function action({ request, params }: Route.ActionArgs) {
     });
     if (!target) return { ok: false as const, error: "That abstract no longer exists." };
 
+    const personId = String(formData.get("personId") ?? "");
+    const role = String(formData.get("role") ?? "");
+    const force = String(formData.get("force") ?? "") === "1";
+    const reason = String(formData.get("reason") ?? "").trim();
+    const linked = await resolveLinkedSession(params.id, event.id);
+    const programmeSessionId = linked?.counterpartId ?? null;
+    let forceApplied = false;
+    if (
+      programmeSessionId &&
+      (PARTICIPANT_ROLES as readonly string[]).includes(role)
+    ) {
+      const person = await db.query.people.findFirst({
+        columns: { fullName: true, email: true },
+        where: eq(people.id, personId),
+      });
+      const conflictCheck = await checkParticipantAddConflict({
+        eventId: event.id,
+        programmeSessionId,
+        personId,
+        personName: person?.fullName ?? person?.email ?? "Speaker",
+      });
+      if (conflictCheck.blocked && !force) {
+        return {
+          ok: false as const,
+          error: `Blocked: ${conflictCheck.reasons.join(", ")}. This would double-book a speaker on a session that's already public. Add anyway, or pick a different speaker.`,
+          blocked: { personId, role, reasons: conflictCheck.reasons },
+        };
+      }
+      forceApplied = conflictCheck.blocked && force;
+      if (forceApplied && !reason) {
+        return {
+          ok: false as const,
+          error: "A reason is required to add this speaker anyway.",
+        };
+      }
+    }
+
     const result = await addSessionParticipant({
       sessionId: params.id,
       eventId: event.id,
-      personId: String(formData.get("personId") ?? ""),
-      role: String(formData.get("role") ?? ""),
+      personId,
+      role,
     });
     if (!result.ok) return { ok: false as const, error: result.error };
+    if (forceApplied && programmeSessionId) {
+      await recordGateOverride({
+        eventId: event.id,
+        sessionId: programmeSessionId,
+        kind: "participant_force",
+        reason,
+        actor: { personId: admin.id, name: admin.fullName ?? admin.email },
+      });
+    }
     return redirect(detailUrl(params.id, tab, trackFilter));
   }
 
@@ -1039,7 +1090,11 @@ export type SubmissionDetailViewProps = Omit<
   triage?: AiTriageCardData | null;
   aiAvailable?: boolean;
   revisions?: RevisionEntry[];
-  actionData?: { ok: false; error: string } | undefined;
+  actionData?: {
+    ok: false;
+    error: string;
+    blocked?: { personId: string; role: string; reasons: string[] };
+  } | undefined;
 };
 
 /**
@@ -1150,9 +1205,31 @@ export function SubmissionDetailView({
       </div>
 
       {actionData && !actionData.ok ? (
-        <p className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-          {actionData.error}
-        </p>
+        <div className="space-y-2 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+          <p>{actionData.error}</p>
+          {actionData.blocked ? (
+            <form method="post" className="flex flex-wrap items-end gap-2" data-add-anyway-form>
+              <input type="hidden" name="intent" value="add-participant" />
+              <input type="hidden" name="personId" value={actionData.blocked.personId} />
+              <input type="hidden" name="role" value={actionData.blocked.role} />
+              <input type="hidden" name="tab" value={tab} />
+              <input type="hidden" name="track" value={trackId ?? ""} />
+              <input type="hidden" name="force" value="1" />
+              <label className="flex flex-col gap-1 text-xs">
+                Why?
+                <input
+                  type="text"
+                  name="reason"
+                  required
+                  maxLength={280}
+                  placeholder="e.g. speaker confirmed by phone"
+                  className={FIELD}
+                />
+              </label>
+              <button type="submit" className={GHOST_BUTTON}>Add anyway</button>
+            </form>
+          ) : null}
+        </div>
       ) : null}
 
       {capture ? <CaptureBanner capture={capture} /> : null}

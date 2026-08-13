@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { sessions } from "~/db/schema";
+import { gateOverrides, sessions } from "~/db/schema";
 import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
@@ -309,6 +309,7 @@ describe("action: a blocking placement is refused; forcing it warns (DECISIONS #
       view: "day",
       returnDay: DAY_ONE,
       force: "1",
+      reason: "The room owner approved the overlap.",
     })) as Response;
   }
 
@@ -355,6 +356,39 @@ describe("action: a blocking placement is refused; forcing it warns (DECISIONS #
     });
     expect(row?.roomId).toBe(fixture.roomIds[0]);
     expect(row?.startsAt?.toISOString()).toBe("2026-10-07T22:00:00.000Z");
+    expect(await ctx.db.select().from(gateOverrides)).toMatchObject([
+      {
+        kind: "schedule_force",
+        reason: "The room owner approved the overlap.",
+        sessionId: fixture.programSessionIds[1],
+        overriddenByName: expect.any(String),
+      },
+    ]);
+  });
+
+  it("MUST FIRE: a forced move without a reason is refused and writes nothing", async () => {
+    const before = await ctx.db.query.sessions.findFirst({
+      where: eq(sessions.id, fixture.programSessionIds[1]),
+    });
+    const result = (await post({
+      intent: "schedule",
+      sessionId: fixture.programSessionIds[1],
+      roomId: fixture.roomIds[0],
+      day: DAY_ONE,
+      time: "15:00",
+      durationMinutes: "30",
+      view: "day",
+      force: "1",
+      reason: "   ",
+    })) as { ok: false; error: string };
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("reason") });
+    const after = await ctx.db.query.sessions.findFirst({
+      where: eq(sessions.id, fixture.programSessionIds[1]),
+    });
+    expect(after?.roomId).toBe(before?.roomId);
+    expect(after?.startsAt?.getTime()).toBe(before?.startsAt?.getTime());
+    expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
   });
 
   it("MUST NOT FIRE: an ADVISORY same-track clash applies with warn=conflict, never blocked", async () => {
@@ -462,6 +496,7 @@ describe("action: a blocking placement is refused; forcing it warns (DECISIONS #
       durationMinutes: "30",
       view: "conflicts",
       force: "1", // a speaker double-booking is blocking, so it needs forcing
+      reason: "Both speakers approved the overlap.",
     })) as Response;
     expect(response.headers.get("location")).toContain("warn=forced");
 

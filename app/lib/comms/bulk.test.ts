@@ -5,10 +5,83 @@ import { renderEmail } from "./templates";
 import {
   MAX_BULK_RECIPIENTS,
   buildRecipientContext,
+  hashBulkSendContent,
+  hashRecipientIds,
   selectRecipients,
   validateCompose,
   type BulkRecipient,
 } from "./bulk";
+
+describe("hashRecipientIds", () => {
+  it("MUST-NOT-FIRE: input order does not change the fingerprint", () => {
+    expect(hashRecipientIds(["speaker-b", "speaker-a", "speaker-c"])).toBe(
+      hashRecipientIds(["speaker-c", "speaker-b", "speaker-a"]),
+    );
+  });
+
+  it("MUST-FIRE: a changed recipient set changes the fingerprint", () => {
+    expect(hashRecipientIds(["speaker-a", "speaker-b"])).not.toBe(
+      hashRecipientIds(["speaker-a", "speaker-c"]),
+    );
+  });
+
+  it("keeps the empty-set fingerprint stable", () => {
+    expect(hashRecipientIds([])).toBe(hashRecipientIds([]));
+  });
+
+  it("MUST-NOT-FIRE complement: concrete different same-length sets do not collide", () => {
+    expect(hashRecipientIds(["alpha", "bravo"])).not.toBe(
+      hashRecipientIds(["charlie", "delta"]),
+    );
+  });
+});
+
+describe("hashBulkSendContent", () => {
+  const base = {
+    eventId: "evt-1",
+    recipients: ["speaker-a", "speaker-b"],
+    subject: "Schedule change",
+    body: "Your session has moved rooms.",
+    audience: "all_speakers",
+  };
+
+  it("MUST-NOT-FIRE: recipient order does not change the fingerprint", () => {
+    expect(hashBulkSendContent(base)).toBe(
+      hashBulkSendContent({ ...base, recipients: [...base.recipients].reverse() }),
+    );
+  });
+
+  it("MUST-FIRE: a different subject changes the fingerprint", () => {
+    expect(hashBulkSendContent(base)).not.toBe(
+      hashBulkSendContent({ ...base, subject: "Different subject" }),
+    );
+  });
+
+  it("MUST-FIRE: a different body changes the fingerprint", () => {
+    expect(hashBulkSendContent(base)).not.toBe(
+      hashBulkSendContent({ ...base, body: "Different body." }),
+    );
+  });
+
+  it("MUST-FIRE: a different event or audience changes the fingerprint", () => {
+    expect(hashBulkSendContent(base)).not.toBe(
+      hashBulkSendContent({ ...base, eventId: "evt-2" }),
+    );
+    expect(hashBulkSendContent(base)).not.toBe(
+      hashBulkSendContent({ ...base, audience: "accepted" }),
+    );
+  });
+
+  it("MUST-FIRE: a different recipient set changes the fingerprint", () => {
+    expect(hashBulkSendContent(base)).not.toBe(
+      hashBulkSendContent({ ...base, recipients: ["speaker-a", "speaker-c"] }),
+    );
+  });
+
+  it("MUST-NOT-FIRE complement: two identical calls fingerprint the same", () => {
+    expect(hashBulkSendContent(base)).toBe(hashBulkSendContent({ ...base }));
+  });
+});
 
 const base = (overrides: Partial<BulkRecipient> = {}): BulkRecipient => ({
   personId: "p1",

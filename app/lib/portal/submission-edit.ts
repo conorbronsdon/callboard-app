@@ -119,3 +119,6 @@ export const SPEAKER_EDIT_LOCK_COPY: Record<
 
 export const PROGRAMME_MISSING_COPY =
   "This accepted talk is missing its connected programme session. Contact the programme team.";
+
+export const PARTICIPANT_CONFLICT_COPY =
+  "Adding this co-author would double-book a speaker on a session that's already scheduled and public. Contact the programme team to resolve it.";

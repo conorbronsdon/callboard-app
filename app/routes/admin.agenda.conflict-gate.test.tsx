@@ -17,7 +17,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { sessionParticipants, sessions } from "~/db/schema";
+import { gateOverrides, sessionParticipants, sessions } from "~/db/schema";
 import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
@@ -161,6 +161,7 @@ describe("set-published refuses a blocking-conflicted session unless forced", ()
       sessionId: target,
       published: "1",
       force: "1",
+      reason: "Venue approved the shared room.",
       view: "list",
     });
     expect(response).toBeInstanceOf(Response);
@@ -168,6 +169,32 @@ describe("set-published refuses a blocking-conflicted session unless forced", ()
     const row = await rowFor(target);
     expect(row?.isPublic).toBe(true);
     expect(row?.publishedAt).toBeInstanceOf(Date);
+    expect(await ctx.db.select().from(gateOverrides)).toMatchObject([
+      {
+        kind: "publish_force",
+        reason: "Venue approved the shared room.",
+        sessionId: target,
+        overriddenByName: expect.any(String),
+      },
+    ]);
+  });
+
+  it("MUST FIRE: publish force without a reason is refused and writes nothing", async () => {
+    await makeRoomClash();
+    const target = fixture.programSessionIds[0];
+
+    const result = (await post({
+      intent: "set-published",
+      sessionId: target,
+      published: "1",
+      force: "1",
+      reason: " ",
+      view: "list",
+    })) as { ok: false; error: string };
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("reason") });
+    expect((await rowFor(target))?.isPublic).toBe(false);
+    expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
   });
 
   it("MUST NOT FIRE: the conflict gate never blocks UNpublishing", async () => {
@@ -275,6 +302,7 @@ describe("a session held for BOTH reasons lists both, and needs both keys", () =
       sessionId: doubly,
       published: "1",
       override: "1",
+      reason: "Speaker confirmed outside callboard.",
       view: "list",
     })) as { ok: false; error: string };
     expect(onlyOverride.ok).toBe(false);
@@ -287,6 +315,7 @@ describe("a session held for BOTH reasons lists both, and needs both keys", () =
       sessionId: doubly,
       published: "1",
       force: "1",
+      reason: "Venue approved the overlap.",
       view: "list",
     })) as { ok: false; error: string };
     expect(onlyForce.ok).toBe(false);
@@ -303,10 +332,15 @@ describe("a session held for BOTH reasons lists both, and needs both keys", () =
       published: "1",
       override: "1",
       force: "1",
+      reason: "Speaker and venue both confirmed.",
       view: "list",
     });
     expect(response).toBeInstanceOf(Response);
     expect((await rowFor(doubly))?.isPublic).toBe(true);
+    expect(await ctx.db.select().from(gateOverrides)).toMatchObject([
+      { kind: "publish_override", reason: "Speaker and venue both confirmed.", sessionId: doubly },
+      { kind: "publish_force", reason: "Speaker and venue both confirmed.", sessionId: doubly },
+    ]);
   });
 
   it("MUST FIRE: the banner's own button carries exactly the keys that session needs", async () => {

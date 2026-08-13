@@ -62,32 +62,14 @@ async function saveEmbed(overrides: Partial<SavedEmbed> = {}) {
 }
 
 describe("agenda embed", () => {
-  it("MUST FIRE: JSON and XML export the agenda session fields", async () => {
-    const json = (await loader(args("?format=json"))) as unknown;
-    expect(json).toBeInstanceOf(Response);
-    if (!(json instanceof Response)) throw new Error("Expected JSON response");
-    expect(json.headers.get("content-type")).toContain("application/json");
-    const body = (await json.json()) as { sessions: Array<Record<string, unknown>> };
-    expect(body.sessions[0]).toMatchObject({
-      id: expect.any(String),
-      title: expect.any(String),
-      startsAt: expect.any(Number),
-      endsAt: null,
-    });
-    expect(body.sessions[0]).toHaveProperty("room");
-    expect(body.sessions[0]).toHaveProperty("track");
-
-    const xml = (await loader(args("?format=xml"))) as unknown;
-    if (!(xml instanceof Response)) throw new Error("Expected XML response");
-    expect(xml.headers.get("content-type")).toContain("application/xml");
-    expect(await xml.text()).toContain("<agenda><session><id>");
-  });
-
-  it("MUST NOT FIRE: hidden track is absent from JSON and HTML, but visible by default", async () => {
-    const hiddenJson = (await loader(args("?format=json&hide=track"))) as unknown;
-    if (!(hiddenJson instanceof Response)) throw new Error("Expected JSON response");
-    const body = (await hiddenJson.json()) as { sessions: Array<Record<string, unknown>> };
-    expect(body.sessions[0]).not.toHaveProperty("track");
+  /*
+   * JSON/XML export moved to `resolveEmbedExportResponse`
+   * (app/lib/embeds.server.test.ts) — the function `workers/app.ts` actually
+   * calls before this loader ever runs. See that function's doc comment:
+   * this route's loader can no longer return a Response and have it reach
+   * the client verbatim (EMB-15, issue #74).
+   */
+  it("MUST NOT FIRE: hidden track stays absent from HTML, visible by default otherwise", async () => {
     expect(markup(await loader(args()) as LoaderData)).toContain("data-session-track=");
     expect(markup(await loader(args("?hide=track")) as LoaderData)).not.toContain(
       "data-session-track=",
@@ -151,12 +133,9 @@ describe("agenda embed", () => {
     expect(markup(await loader(args()))).toContain("data-session-speaker");
   });
 
-  it("renders and exports the zero-row state", async () => {
+  it("renders the zero-row state", async () => {
     const { sessions } = await import("~/db/schema");
     await ctx.db.update(sessions).set({ isPublic: false });
     expect(markup(await loader(args()))).toContain("The schedule is not published yet.");
-    const response = (await loader(args("?format=json"))) as unknown;
-    if (!(response instanceof Response)) throw new Error("Expected JSON response");
-    await expect(response.json()).resolves.toMatchObject({ sessions: [], total: 0 });
   });
 });

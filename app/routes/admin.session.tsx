@@ -29,18 +29,21 @@ import {
 } from "~/db/schema";
 import {
   addSessionParticipant,
+  checkParticipantAddConflict,
   PARTICIPANT_ROLE_LABELS,
   removeSessionParticipant,
 } from "~/lib/admin/session-participants.server";
+import {
+  latestGateOverride,
+  recordGateOverride,
+} from "~/lib/admin/gate-overrides.server";
 import { updateSessionContent } from "~/lib/admin/session-edit.server";
 import {
   listSessionRevisions,
   restoreSessionRevision,
 } from "~/lib/admin/session-revisions.server";
 import {
-  blockingConflicts,
   conflictLabel,
-  findConflicts,
 } from "~/lib/agenda/conflicts";
 import { conflictsInvolving, loadProgramme } from "~/lib/agenda/programme.server";
 import { requireAdmin } from "~/lib/auth/auth.server";
@@ -83,6 +86,12 @@ export interface SessionData {
   conflicts: string[];
   roles: { value: string; label: string }[];
   revisions: RevisionEntry[];
+  latestOverride: {
+    kind: string;
+    reason: string;
+    overriddenByName: string;
+    createdAt: Date;
+  } | null;
   notice: string | null;
 }
 
@@ -104,6 +113,7 @@ function emptyData(
     conflicts: [],
     roles,
     revisions: [],
+    latestOverride: null,
     notice,
   };
 }
@@ -151,7 +161,7 @@ export async function loader({ request, params }: Route.LoaderArgs): Promise<Ses
   const eventData = { id: event.id, name: event.name, slug: event.slug };
   if (!session) return emptyData(eventData);
 
-  const [participantRows, rosterRows, sourceRows, revisionRows] = await Promise.all([
+  const [participantRows, rosterRows, sourceRows, revisionRows, latestOverride] = await Promise.all([
     db
       .select({
         personId: people.id,
@@ -183,6 +193,7 @@ export async function loader({ request, params }: Route.LoaderArgs): Promise<Ses
       )
       .limit(1),
     listSessionRevisions(sessionId, event.id),
+    latestGateOverride(sessionId),
   ]);
 
   const participants: SessionParticipantRow[] = participantRows.map((row) => ({
@@ -227,6 +238,7 @@ export async function loader({ request, params }: Route.LoaderArgs): Promise<Ses
     conflicts: conflictsInvolving(programme.conflicts, sessionId).map(conflictLabel),
     roles,
     revisions: toRevisionEntries(revisionRows),
+    latestOverride,
     notice:
       restored === "1"
         ? "Restored an earlier version."
@@ -293,45 +305,29 @@ export async function action({ request, params }: Route.ActionArgs) {
     const personId = String(formData.get("personId") ?? "");
     const role = String(formData.get("role") ?? "");
     const force = String(formData.get("force") ?? "") === "1";
+    const reason = String(formData.get("reason") ?? "").trim();
+    let forceApplied = false;
 
-    const before = await loadProgramme(event.id);
-    const target = before.sessions.find((session) => session.id === sessionId);
-    if (
-      target &&
-      (PARTICIPANT_ROLES as readonly string[]).includes(role) &&
-      !target.participants.some((participant) => participant.id === personId)
-    ) {
+    if ((PARTICIPANT_ROLES as readonly string[]).includes(role)) {
       const personName = await personDisplayName(personId);
-      const hypothetical = before.sessions.map((session) =>
-        session.id === sessionId
-          ? {
-              ...session,
-              participants: [...session.participants, { id: personId, name: personName }],
-            }
-          : session,
-      );
-      /*
-       * Only this person's speaker conflicts can be introduced here: the
-       * duplicate guard above leaves the existing participant set unchanged,
-       * so an older clash cannot be mistaken for a consequence of this write.
-       * A clash between drafts remains parkable; either public commitment makes
-       * it a live double-booking and needs an explicit organizer choice.
-       */
-      const newBlocking = blockingConflicts(findConflicts(hypothetical)).filter(
-        (conflict) => conflict.kind === "speaker" && conflict.resourceId === personId,
-      );
-      const isPublicById = new Map(
-        before.sessions.map((session) => [session.id, session.isPublic]),
-      );
-      const blocksAPublishedSession = newBlocking.some(
-        (conflict) => isPublicById.get(conflict.a.id) || isPublicById.get(conflict.b.id),
-      );
-      if (blocksAPublishedSession && !force) {
-        const reasons = newBlocking.map(conflictLabel);
+      const conflictCheck = await checkParticipantAddConflict({
+        eventId: event.id,
+        programmeSessionId: sessionId,
+        personId,
+        personName,
+      });
+      if (conflictCheck.blocked && !force) {
         return {
           ok: false as const,
-          error: `Blocked: ${reasons.join(", ")}. This would double-book a speaker on a session that's already public. Add anyway, or pick a different speaker.`,
-          blocked: { personId, role, reasons },
+          error: `Blocked: ${conflictCheck.reasons.join(", ")}. This would double-book a speaker on a session that's already public. Add anyway, or pick a different speaker.`,
+          blocked: { personId, role, reasons: conflictCheck.reasons },
+        };
+      }
+      forceApplied = conflictCheck.blocked && force;
+      if (forceApplied && !reason) {
+        return {
+          ok: false as const,
+          error: "A reason is required to add this speaker anyway.",
         };
       }
     }
@@ -343,6 +339,16 @@ export async function action({ request, params }: Route.ActionArgs) {
       role,
     });
     if (!result.ok) return { ok: false as const, error: result.error };
+
+    if (forceApplied) {
+      await recordGateOverride({
+        eventId: event.id,
+        sessionId,
+        kind: "participant_force",
+        reason,
+        actor: { personId: admin.id, name: admin.fullName ?? admin.email },
+      });
+    }
 
     const query = new URLSearchParams({ added: await personDisplayName(personId) });
     const after = await loadProgramme(event.id);
@@ -429,6 +435,12 @@ export function SessionScreen(data: SessionData) {
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {data.latestOverride ? (
+        <p className="mb-3 rounded border border-gray-300 bg-gray-50 p-2 text-sm dark:border-gray-700 dark:bg-gray-900">
+          Forced by {data.latestOverride.overriddenByName}: {data.latestOverride.reason}
+        </p>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -584,6 +596,17 @@ export default function AdminSession({ loaderData, actionData }: Route.Component
           <input type="hidden" name="personId" value={result.blocked.personId} />
           <input type="hidden" name="role" value={result.blocked.role} />
           <input type="hidden" name="force" value="1" />
+          <label className="flex flex-col gap-1 text-xs">
+            Why?
+            <input
+              type="text"
+              name="reason"
+              required
+              maxLength={280}
+              placeholder="e.g. speaker confirmed by phone"
+              className={FIELD}
+            />
+          </label>
           <button type="submit" className={BUTTON}>
             Add anyway
           </button>

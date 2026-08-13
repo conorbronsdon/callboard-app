@@ -52,6 +52,7 @@ import {
 } from "~/lib/agenda/informed-gate.server";
 import { conflictsInvolving, loadProgramme } from "~/lib/agenda/programme.server";
 import { predictConflicts } from "~/lib/agenda/predict";
+import { recordGateOverride } from "~/lib/admin/gate-overrides.server";
 import { notifyScheduleChange } from "~/lib/comms/schedule-invite.server";
 import {
   DEFAULT_DURATION_MINUTES,
@@ -352,7 +353,7 @@ function optionalId(value: FormDataEntryValue | null): string | null {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireAdmin(request);
+  const admin = await requireAdmin(request);
   const event = await currentEvent(request);
   if (!event) return { ok: false as const, error: "No event has been set up yet." };
 
@@ -506,6 +507,11 @@ export async function action({ request }: Route.ActionArgs) {
         },
       };
     }
+    const forceApplied = blocking.length > 0 && force;
+    const reason = String(formData.get("reason") ?? "").trim();
+    if (forceApplied && !reason) {
+      return { ok: false as const, error: "A reason is required to move this anyway." };
+    }
 
     await db
       .update(sessions)
@@ -516,6 +522,16 @@ export async function action({ request }: Route.ActionArgs) {
         updatedAt: new Date(),
       })
       .where(eq(sessions.id, sessionId));
+
+    if (forceApplied) {
+      await recordGateOverride({
+        eventId: event.id,
+        sessionId,
+        kind: "schedule_force",
+        reason,
+        actor: { personId: admin.id, name: admin.fullName ?? admin.email },
+      });
+    }
 
     // WS5 seam. Only a PUBLISHED session mails anybody, so dragging cards
     // around a draft agenda is silent; the guards live in the comms lane.
@@ -586,6 +602,7 @@ export async function action({ request }: Route.ActionArgs) {
     const published = String(formData.get("published") ?? "") === "1";
     const override = String(formData.get("override") ?? "") === "1";
     const force = String(formData.get("force") ?? "") === "1";
+    const reason = String(formData.get("reason") ?? "").trim();
     if (published && !target.startsAt) {
       return {
         ok: false as const,
@@ -596,12 +613,16 @@ export async function action({ request }: Route.ActionArgs) {
     const currentConflicts = programme
       ? conflictsInvolving(programme.conflicts, sessionId)
       : [];
+    const informedWouldBlock = published && !(await isSessionInformed(db, sessionId));
+    const conflictReasons = published
+      ? releaseConflictReasons(currentConflicts, sessionId)
+      : [];
     const gateReasons: string[] = [];
-    if (published && !override && !(await isSessionInformed(db, sessionId))) {
+    if (informedWouldBlock && !override) {
       gateReasons.push(UNINFORMED_REASON);
     }
     if (published && !force) {
-      gateReasons.push(...releaseConflictReasons(currentConflicts, sessionId));
+      gateReasons.push(...conflictReasons);
     }
     if (gateReasons.length > 0) {
       const namedReasons = gateReasons.map((reason) =>
@@ -614,6 +635,11 @@ export async function action({ request }: Route.ActionArgs) {
         error: `Held: ${namedReasons.join("; ")}. Resolve the hold, or publish anyway with the required override.`,
       };
     }
+    const overrideApplied = informedWouldBlock && override;
+    const forceApplied = conflictReasons.length > 0 && force;
+    if ((overrideApplied || forceApplied) && !reason) {
+      return { ok: false as const, error: "A reason is required to publish this anyway." };
+    }
 
     await db
       .update(sessions)
@@ -623,6 +649,25 @@ export async function action({ request }: Route.ActionArgs) {
         updatedAt: new Date(),
       })
       .where(eq(sessions.id, sessionId));
+
+    if (overrideApplied) {
+      await recordGateOverride({
+        eventId: event.id,
+        sessionId,
+        kind: "publish_override",
+        reason,
+        actor: { personId: admin.id, name: admin.fullName ?? admin.email },
+      });
+    }
+    if (forceApplied) {
+      await recordGateOverride({
+        eventId: event.id,
+        sessionId,
+        kind: "publish_force",
+        reason,
+        actor: { personId: admin.id, name: admin.fullName ?? admin.email },
+      });
+    }
 
     if (published && !target.isPublic) {
       await emitWebhook("session.published", sessionId, {
@@ -1560,6 +1605,17 @@ export function AgendaScreen(data: AgendaData) {
                   ) : null}
                   <input type="hidden" name="view" value={data.view} />
                   <input type="hidden" name="returnDay" value={data.day ?? ""} />
+                  <label className="flex flex-col gap-1 text-xs">
+                    Why?
+                    <input
+                      type="text"
+                      name="reason"
+                      required
+                      maxLength={280}
+                      placeholder="e.g. speaker confirmed by phone"
+                      className={FIELD}
+                    />
+                  </label>
                   <button type="submit" className={GHOST}>
                     Publish anyway
                   </button>
@@ -1670,6 +1726,17 @@ export default function AdminAgenda({ loaderData, actionData }: Route.ComponentP
                 value={result.blocked.returnDay ?? ""}
               />
               <input type="hidden" name="force" value="1" />
+              <label className="flex flex-col gap-1 text-xs">
+                Why?
+                <input
+                  type="text"
+                  name="reason"
+                  required
+                  maxLength={280}
+                  placeholder="e.g. speaker confirmed by phone"
+                  className={FIELD}
+                />
+              </label>
               <button type="submit" className={GHOST}>
                 Move anyway
               </button>

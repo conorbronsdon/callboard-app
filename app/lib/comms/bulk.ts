@@ -22,6 +22,48 @@ export function isBulkAudience(value: unknown): value is BulkAudience {
 
 export const MAX_BULK_RECIPIENTS = 250;
 
+/** FNV-1a over a string. Synchronous on purpose — usable inside SSR/browser
+ * renders and cheap enough for a per-request server check, with no Web
+ * Crypto dependency. Not a security boundary anywhere it is used. */
+function fnv1aHash(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+/**
+ * Stable fingerprint of a recipient set, independent of input order. This is a
+ * UX staleness guard, not a security boundary.
+ */
+export function hashRecipientIds(ids: readonly string[]): string {
+  return fnv1aHash([...ids].sort().join("\u0001"));
+}
+
+/**
+ * Deterministic content fingerprint for a bulk send (issue #198) — the
+ * fallback idempotency key `sendBulkComm` uses when a caller does not supply
+ * one of its own (e.g. a direct test call, not the compose route's
+ * per-render submit nonce). Two calls with identical substance collapse to
+ * the same key, which is what lets a bare `Promise.all([sendBulkComm(a),
+ * sendBulkComm(a)])` get deduplicated with no caller changes at all.
+ * Recipient order does not matter; every other field does.
+ */
+export function hashBulkSendContent(input: {
+  eventId: string;
+  recipients: readonly string[];
+  subject: string;
+  body: string;
+  audience: string;
+}): string {
+  const recipientsPart = [...input.recipients].sort().join("\u0001");
+  return fnv1aHash(
+    [input.eventId, input.audience, input.subject, input.body, recipientsPart].join("\u0001"),
+  );
+}
+
 /**
  * Template key stamped on a free-form bulk send. Deliberately NOT a
  * `TemplateKey`: there is no `email_templates` row behind it, and

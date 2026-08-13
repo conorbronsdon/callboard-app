@@ -64,6 +64,24 @@ function composeEntries(overrides: Record<string, string> = {}, recipientIds = [
   return [...fields, ...recipientIds.map((id) => ["recipientIds", id] as [string, string])];
 }
 
+async function composeSendEntries(
+  overrides: Record<string, string> = {},
+  recipientIds = [fixture.speakerIds[0]],
+) {
+  const data = await load();
+  const compose = data.compose!;
+  return composeEntries(
+    {
+      intent: "send",
+      audienceVersion: compose.audienceVersion,
+      audienceCount: String(compose.filteredRecipientIds.length),
+      submitNonce: compose.submitNonce,
+      ...overrides,
+    },
+    recipientIds,
+  );
+}
+
 describe("compose loader and view", () => {
   it("loads a template's raw tokens and prechecks the outstanding-task audience", async () => {
     const data = await load("?audience=outstanding_tasks&template=task_reminder");
@@ -79,6 +97,9 @@ describe("compose loader and view", () => {
     expect(html).toContain("2 of 2 selected");
     expect(html).toContain('name="subject"');
     expect(html).toContain('name="body"');
+    expect(html).toContain('name="audienceVersion"');
+    expect(html).toContain('name="audienceCount" value="2"');
+    expect(html).toContain('name="submitNonce"');
   });
 
   it("MUST-NOT-FIRE: all-speakers excludes the organizer but includes every seeded speaker", async () => {
@@ -124,9 +145,8 @@ describe("compose action", () => {
   it("MUST-NOT-FIRE complement: a valid same-shape send redirects and history records each recipient", async () => {
     const recipientIds = fixture.speakerIds.slice(0, 2);
     const result = await post(
-      composeEntries(
+      await composeSendEntries(
         {
-          intent: "send",
           templateKey: "",
           subject: "Welcome to DevFlow Conf 2027 speakers",
           body: "Hi {{speaker.first_name}}, welcome to {{event.name}}.",
@@ -146,10 +166,97 @@ describe("compose action", () => {
     expect(data.counts).toEqual({ total: 2, sent: 2, failed: 0 });
   });
 
+  it("MUST-FIRE: a stale audience refuses the send and writes zero messages", async () => {
+    const rendered = await load();
+    const compose = rendered.compose!;
+    const staleCount = compose.filteredRecipientIds.length;
+    const addedPersonId = "comms-race-speaker";
+    await ctx.db.insert(people).values({
+      id: addedPersonId,
+      email: "late.speaker@example.com",
+      fullName: "Late Speaker",
+      role: "speaker",
+    });
+    await ctx.db.insert(eventPeople).values({
+      eventId: fixture.eventId,
+      personId: addedPersonId,
+      eventRole: "speaker",
+    });
+
+    const result = (await post(
+      composeEntries(
+        {
+          intent: "send",
+          templateKey: "",
+          subject: "Stale audience must not send",
+          body: "Review the recipients first.",
+          audienceVersion: compose.audienceVersion,
+          audienceCount: String(staleCount),
+        },
+        compose.filteredRecipientIds,
+      ),
+    )) as CommsActionData;
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: `Your recipient list changed (was ${staleCount}, now ${staleCount + 1}) — review and confirm again.`,
+    });
+    expect(await ctx.db.select().from(commLog)).toEqual([]);
+  });
+
+  it("MUST-FIRE: a missing audience fingerprint is refused", async () => {
+    const result = (await post(
+      composeEntries({
+        intent: "send",
+        templateKey: "",
+        subject: "Missing snapshot",
+        body: "This hand-built request must not bypass the guard.",
+      }),
+    )) as CommsActionData;
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("Your recipient list changed"),
+    });
+    expect(await ctx.db.select().from(commLog)).toEqual([]);
+  });
+
+  it("MUST-FIRE: a double-click (replayed submit nonce) sends once, not twice (issue #198)", async () => {
+    const entries = await composeSendEntries({
+      templateKey: "",
+      subject: "Schedule change",
+      body: "Your session has moved rooms.",
+    });
+
+    // Two POSTs of the SAME rendered form — exactly what a double-click or a
+    // client's automatic retry of a slow request produces.
+    const [first, second] = await Promise.all([post(entries), post(entries)]);
+
+    const responses = [first, second];
+    const sentOne = responses.filter((r) => r instanceof Response);
+    const refused = responses.filter((r) => !(r instanceof Response)) as CommsActionData[];
+    expect(sentOne, "exactly one of the two concurrent posts should redirect").toHaveLength(1);
+    expect(refused, "the other should be refused, not silently dropped").toHaveLength(1);
+    expect(refused[0]).toMatchObject({ ok: false, error: expect.stringMatching(/already sent/i) });
+
+    expect(await ctx.db.select().from(commLog)).toHaveLength(1);
+  });
+
+  it("MUST-NOT-FIRE complement: a normal single send with a fresh nonce still sends once", async () => {
+    const entries = await composeSendEntries({
+      templateKey: "",
+      subject: "Schedule change",
+      body: "Your session has moved rooms.",
+    });
+    const result = await post(entries);
+    expect(result).toBeInstanceOf(Response);
+    expect(await ctx.db.select().from(commLog)).toHaveLength(1);
+  });
+
   it("MUST-FIRE: a free-form send is named in history, not shown as its sentinel key", async () => {
     const result = await post(
-      composeEntries(
-        { intent: "send", templateKey: "", subject: "Plain subject", body: "Plain body" },
+      await composeSendEntries(
+        { templateKey: "", subject: "Plain subject", body: "Plain body" },
         [fixture.speakerIds[0]],
       ),
     );

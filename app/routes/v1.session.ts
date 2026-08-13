@@ -26,7 +26,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const origin = new URL(request.url).origin;
 
   if (request.method === "PUT") {
-    await requireApiKey(request, { eventId, scope: "write:sessions" });
+    const principal = await requireApiKey(request, { eventId, scope: "write:sessions" });
 
     let body: Record<string, unknown>;
     try {
@@ -43,8 +43,13 @@ export async function action({ request, params }: Route.ActionArgs) {
       params.sessionId,
       parsed.values,
       parsed.expectedUpdatedAt,
-      parsed.publishOverride,
-      parsed.publishForce,
+      {
+        publishOverride: parsed.publishOverride,
+        publishForce: parsed.publishForce,
+        publishOverrideReason: parsed.publishOverrideReason,
+        publishForceReason: parsed.publishForceReason,
+        actor: { personId: null, name: `API key "${principal.keyName}"` },
+      },
     );
     if (!updated.ok) {
       const { code, message } = updated.error;

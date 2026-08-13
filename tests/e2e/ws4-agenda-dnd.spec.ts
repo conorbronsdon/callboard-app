@@ -344,7 +344,11 @@ test("the board works with JavaScript disabled — the card form round-trips, an
 
   /* ── 3. "Move anyway" carries the force key through the same JS-off form ─ */
   await save(occupied!.roomId, occupied!.time);
-  await page.getByRole("button", { name: "Move anyway" }).click();
+  const moveAnywayForm = page
+    .getByRole("button", { name: "Move anyway" })
+    .locator("xpath=..");
+  await moveAnywayForm.getByLabel("Why?").fill("Venue approved this room overlap.");
+  await moveAnywayForm.getByRole("button", { name: "Move anyway" }).click();
 
   await page.waitForURL(/moved=/, { timeout: 15_000 });
   // `force` and `override` are separate keys on purpose (DECISIONS #70), and a

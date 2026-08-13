@@ -17,6 +17,10 @@
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { getDb } from "~/db/client.server";
+import {
+  recordGateOverride,
+  type GateOverrideActor,
+} from "~/lib/admin/gate-overrides.server";
 import { blockingConflicts, conflictLabel } from "~/lib/agenda/conflicts";
 import { isSessionInformed } from "~/lib/agenda/informed-gate.server";
 import { predictConflicts } from "~/lib/agenda/predict";
@@ -519,6 +523,8 @@ export type ParseResult =
       expectedUpdatedAt: number | null;
       publishOverride: boolean;
       publishForce: boolean;
+      publishOverrideReason: string | null;
+      publishForceReason: string | null;
     }
   | { ok: false; message: string };
 
@@ -735,6 +741,20 @@ export function parseSessionBody(raw: unknown, mode: "create" | "update"): Parse
   if (publishOverride === null) {
     return { ok: false, message: "`publish_override` must be a boolean." };
   }
+  const publishOverrideReasonRaw = pick(
+    input,
+    "publishOverrideReason",
+    "publish_override_reason",
+  );
+  const publishOverrideReason = publishOverrideReasonRaw === undefined
+    ? null
+    : String(publishOverrideReasonRaw).trim() || null;
+  if (publishOverride && !publishOverrideReason) {
+    return {
+      ok: false,
+      message: "`publish_override_reason` is required when `publish_override` is true.",
+    };
+  }
   const publishForceRaw = pick(input, "publishForce", "publish_force");
   if (mode === "create" && ("publishForce" in input || "publish_force" in input)) {
     return { ok: false, message: "`publish_force` is accepted only on update." };
@@ -745,6 +765,16 @@ export function parseSessionBody(raw: unknown, mode: "create" | "update"): Parse
   if (publishForce === null) {
     return { ok: false, message: "`publish_force` must be a boolean." };
   }
+  const publishForceReasonRaw = pick(input, "publishForceReason", "publish_force_reason");
+  const publishForceReason = publishForceReasonRaw === undefined
+    ? null
+    : String(publishForceReasonRaw).trim() || null;
+  if (publishForce && !publishForceReason) {
+    return {
+      ok: false,
+      message: "`publish_force_reason` is required when `publish_force` is true.",
+    };
+  }
 
   return {
     ok: true,
@@ -752,6 +782,8 @@ export function parseSessionBody(raw: unknown, mode: "create" | "update"): Parse
     expectedUpdatedAt: mode === "update" ? expected : null,
     publishOverride,
     publishForce,
+    publishOverrideReason,
+    publishForceReason,
   };
 }
 
@@ -846,8 +878,13 @@ export async function updateSession(
   sessionId: string,
   values: SessionWriteValues,
   expectedUpdatedAt: number | null,
-  publishOverride = false,
-  publishForce = false,
+  options: {
+    publishOverride?: boolean;
+    publishForce?: boolean;
+    publishOverrideReason?: string | null;
+    publishForceReason?: string | null;
+    actor: GateOverrideActor;
+  },
 ): Promise<WriteResult<SessionInput>> {
   const db = getDb();
   const existing = await db.query.sessions.findFirst({
@@ -880,6 +917,8 @@ export async function updateSession(
   }
 
   const isPublishing = values.isPublic === true && !existing.isPublic;
+  const publishOverride = options.publishOverride ?? false;
+  const publishForce = options.publishForce ?? false;
   // Explicit nulls are writes, not omissions. Resolve the proposed row with an
   // undefined check so clearing a placement cannot borrow the stored value and
   // pass a pre-write gate for a state that will not exist after the update.
@@ -897,11 +936,8 @@ export async function updateSession(
     };
   }
 
-  if (
-    isPublishing &&
-    !publishOverride &&
-    !(await isSessionInformed(db, sessionId))
-  ) {
+  const informedWouldBlock = isPublishing && !(await isSessionInformed(db, sessionId));
+  if (informedWouldBlock && !publishOverride) {
     return {
       ok: false,
       error: {
@@ -911,8 +947,20 @@ export async function updateSession(
       },
     };
   }
+  const publishOverrideApplied = informedWouldBlock && publishOverride;
+  const publishOverrideReason = options.publishOverrideReason?.trim() || null;
+  if (publishOverrideApplied && !publishOverrideReason) {
+    return {
+      ok: false,
+      error: {
+        code: "validation",
+        message: "`publish_override_reason` is required when the informed gate is overridden.",
+      },
+    };
+  }
 
-  if (isPublishing && !publishForce && finalStartsAt && finalEndsAt) {
+  let publishForceApplied = false;
+  if (isPublishing && finalStartsAt && finalEndsAt) {
     const programme = await loadProgramme(eventId);
     const roomName = finalRoomId
       ? programme.rooms.find((room) => room.id === finalRoomId)?.name ?? null
@@ -926,7 +974,7 @@ export async function updateSession(
         endsAt: finalEndsAt.getTime(),
       }),
     );
-    if (conflicts.length > 0) {
+    if (conflicts.length > 0 && !publishForce) {
       return {
         ok: false,
         error: {
@@ -935,6 +983,17 @@ export async function updateSession(
         },
       };
     }
+    publishForceApplied = conflicts.length > 0 && publishForce;
+  }
+  const publishForceReason = options.publishForceReason?.trim() || null;
+  if (publishForceApplied && !publishForceReason) {
+    return {
+      ok: false,
+      error: {
+        code: "validation",
+        message: "`publish_force_reason` is required when the conflict gate is forced.",
+      },
+    };
   }
 
   const patch: Record<string, unknown> = {};
@@ -975,6 +1034,25 @@ export async function updateSession(
         message: `Update failed: ${error instanceof Error ? error.message : String(error)}`,
       },
     };
+  }
+
+  if (publishOverrideApplied && publishOverrideReason) {
+    await recordGateOverride({
+      eventId,
+      sessionId,
+      kind: "publish_override",
+      reason: publishOverrideReason,
+      actor: options.actor,
+    });
+  }
+  if (publishForceApplied && publishForceReason) {
+    await recordGateOverride({
+      eventId,
+      sessionId,
+      kind: "publish_force",
+      reason: publishForceReason,
+      actor: options.actor,
+    });
   }
 
   const updated = await getSession(eventId, sessionId);
@@ -1074,6 +1152,7 @@ export interface BulkResponse {
 export async function bulkSessions(
   eventId: string,
   operations: unknown,
+  actor: GateOverrideActor,
 ): Promise<{ ok: true; value: BulkResponse } | { ok: false; message: string }> {
   if (!Array.isArray(operations)) {
     return { ok: false, message: "`operations` must be an array." };
@@ -1126,8 +1205,13 @@ export async function bulkSessions(
         id,
         parsed.values,
         parsed.expectedUpdatedAt,
-        parsed.publishOverride,
-        parsed.publishForce,
+        {
+          publishOverride: parsed.publishOverride,
+          publishForce: parsed.publishForce,
+          publishOverrideReason: parsed.publishOverrideReason,
+          publishForceReason: parsed.publishForceReason,
+          actor,
+        },
       );
       if (updated.ok) {
         results.push({ index, action, status: "success", id: updated.value.id });

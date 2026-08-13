@@ -7,16 +7,21 @@
  * worth proving: the roster opens and closes with title/abstract, so a speaker
  * cannot slip a name onto a proposal that is no longer editable.
  */
+import { renderToStaticMarkup } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { forms, people, sessionParticipants, sessions } from "~/db/schema";
-import { PROGRAMME_MISSING_COPY } from "~/lib/portal/submission-edit";
+import { forms, gateOverrides, people, sessionParticipants, sessions } from "~/db/schema";
+import {
+  PARTICIPANT_CONFLICT_COPY,
+  PROGRAMME_MISSING_COPY,
+} from "~/lib/portal/submission-edit";
 import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { CFP_FORM_ID, seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
-import { action, loader } from "./portal.submission.edit";
+import EditSubmission, { action, loader } from "./portal.submission.edit";
 import {
   loader as adminLoader,
   submissionLoaderPayload,
@@ -111,6 +116,16 @@ async function rosterOf(sessionId: string) {
     })
     .from(sessionParticipants)
     .where(eq(sessionParticipants.sessionId, sessionId));
+}
+
+async function overlapProgrammeSessions() {
+  const first = await ctx.db.query.sessions.findFirst({
+    where: eq(sessions.id, fixture.programSessionIds[0]),
+  });
+  await ctx.db
+    .update(sessions)
+    .set({ startsAt: first!.startsAt, endsAt: first!.endsAt })
+    .where(eq(sessions.id, fixture.programSessionIds[1]));
 }
 
 describe("loader", () => {
@@ -295,7 +310,54 @@ describe("remove-coauthor", () => {
 });
 
 describe("accepted proposals mirror onto the programme", () => {
-  it("MUST FIRE: a co-author added to an accepted abstract reaches its programme session", async () => {
+  it("MUST FIRE: a public speaker conflict is refused and a forged force cannot bypass it", async () => {
+    await enableCoAuthors();
+    await overlapProgrammeSessions();
+    const abstractId = fixture.abstractIds[0];
+    const owner = fixture.speakerIds[0];
+    const programmeId = fixture.programSessionIds[0];
+    const candidate = await ctx.db.query.people.findFirst({
+      where: eq(people.id, fixture.speakerIds[1]),
+    });
+    const beforeAbstract = await rosterOf(abstractId);
+    const beforeProgramme = await rosterOf(programmeId);
+
+    for (const force of [undefined, "1"]) {
+      const response = await postAs(owner, abstractId, {
+        intent: "add-coauthor",
+        name: candidate!.fullName ?? "",
+        email: candidate!.email,
+        role: "co_speaker",
+        ...(force ? { force } : {}),
+      });
+      expect(statusOf(response)).toBe(409);
+      expect(errorOf(response)).toBe(PARTICIPANT_CONFLICT_COPY);
+      expect(await rosterOf(abstractId)).toEqual(beforeAbstract);
+      expect(await rosterOf(programmeId)).toEqual(beforeProgramme);
+      expect(await ctx.db.select().from(gateOverrides)).toEqual([]);
+    }
+  });
+
+  it("MUST NOT FIRE: the speaker form exposes no force control", async () => {
+    await enableCoAuthors();
+    const abstractId = fixture.abstractIds[0];
+    const data = await loadAs(fixture.speakerIds[0], abstractId);
+    const Stub = createRoutesStub([
+      {
+        path: "/portal/submissions/:sessionId/edit",
+        Component: () =>
+          EditSubmission({ loaderData: data, actionData: undefined } as unknown as Parameters<
+            typeof EditSubmission
+          >[0]),
+      },
+    ]);
+    const html = renderToStaticMarkup(
+      <Stub initialEntries={[`/portal/submissions/${abstractId}/edit`]} />,
+    );
+    expect(html).not.toContain('name="force"');
+  });
+
+  it("MUST NOT FIRE: an unaffected co-author add reaches its programme session", async () => {
     await enableCoAuthors();
     const abstractId = fixture.abstractIds[0];
     const owner = fixture.speakerIds[0];

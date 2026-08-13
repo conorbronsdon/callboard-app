@@ -16,7 +16,6 @@
 import { EmbedScheduleList } from "~/components/schedule-list";
 import { loadPublicSchedule } from "~/lib/agenda/public-schedule.server";
 import { EMPTY_FILTER, filterDays, countSessions } from "~/lib/agenda/public-schedule";
-import { buildEmbedXml } from "~/lib/embeds";
 import { resolveEmbedOptions } from "~/lib/embeds.server";
 import { EmbedShell } from "~/components/embed-shell";
 import type { Route } from "./+types/embed.schedule";
@@ -26,10 +25,20 @@ export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: event ? `Schedule — ${event}` : "Schedule — callboard" }];
 }
 
-async function loaderImpl({ params, request }: Route.LoaderArgs) {
+/*
+ * JSON/XML export for this widget is served from `workers/app.ts`
+ * (`resolveEmbedExportResponse`), never from this loader. React Router
+ * always renders `EmbedSchedule` around whatever a document-request loader
+ * returns, so a `Response` returned here would be folded into `loaderData`
+ * instead of sent back verbatim — see that function's doc comment.
+ */
+export async function loader({ params, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const { theme, track, accent, density, format, customCss, hiddenFields } =
-    await resolveEmbedOptions(params.slug, url, "schedule");
+  const { theme, track, accent, density, customCss, hiddenFields } = await resolveEmbedOptions(
+    params.slug,
+    url,
+    "schedule",
+  );
 
   const { event, days } = await loadPublicSchedule(params.slug);
   /*
@@ -58,25 +67,6 @@ async function loaderImpl({ params, request }: Route.LoaderArgs) {
     })),
   }));
   const total = countSessions(presentedDays);
-  const sessions = presentedDays.flatMap((day) =>
-    day.sessions.map((slot) => ({
-      id: slot.id,
-      title: slot.title,
-      startsAt: slot.startsAtMs,
-      endsAt: null,
-      ...(!hidden.has("room") ? { room: slot.roomName } : {}),
-      ...(!hidden.has("track") ? { track: slot.trackName } : {}),
-    })),
-  );
-
-  if (format === "json") {
-    return Response.json({ event, sessions, total });
-  }
-  if (format === "xml") {
-    return new Response(buildEmbedXml("schedule", "session", sessions), {
-      headers: { "Content-Type": "application/xml; charset=utf-8" },
-    });
-  }
 
   return {
     event,
@@ -90,10 +80,6 @@ async function loaderImpl({ params, request }: Route.LoaderArgs) {
     hiddenFields,
   };
 }
-
-export const loader = loaderImpl as (
-  args: Route.LoaderArgs,
-) => Promise<Exclude<Awaited<ReturnType<typeof loaderImpl>>, Response>>;
 
 export default function EmbedSchedule({ loaderData }: Route.ComponentProps) {
   const { event, days, total, theme, track, accent, density, customCss } = loaderData;

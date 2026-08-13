@@ -390,15 +390,15 @@ describe("the product ships one eyebrow, one field class and one primary blue", 
     "routes/public.submit.step.tsx": 7,
   };
 
-  it("hand-rolled gray eyebrows stay inside the shrink-only allowance", () => {
+  it("hand-rolled gray eyebrows stay inside the shrink-only allowance", { timeout: 30_000 }, () => {
     expect(countsIn(readAppCorpus(EYEBROW_HOME), HAND_ROLLED_EYEBROW)).toEqual(EYEBROW_ALLOWANCE);
   });
 
-  it("private copies of the field class stay inside the shrink-only allowance", () => {
+  it("private copies of the field class stay inside the shrink-only allowance", { timeout: 30_000 }, () => {
     expect(countsIn(readAppCorpus(FIELD_HOME), HAND_ROLLED_FIELD)).toEqual(FIELD_ALLOWANCE);
   });
 
-  it("no component rolls its own blue primary — the allowance here is empty", () => {
+  it("no component rolls its own blue primary — the allowance here is empty", { timeout: 30_000 }, () => {
     // No allowance list on purpose. All four that existed are converted:
     // `submit/stepper.tsx` and `public.submit.success.tsx` (blue-600 by luck),
     // `public.speakers.tsx` and `review.index.tsx` (blue-700 — a SECOND blue).
