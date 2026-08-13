@@ -7,10 +7,8 @@
  *    speaker fills in here; answers land in `tasks.response` and completing the
  *    form completes the task.
  *
- * ⚠️ There is no `tasks.kind` column, so the kind is DERIVED from `form_id`.
- * That is deliberate rather than lazy: file collection is modelled as a form
- * with a `file` question, which means one flow covers manual tasks, questionnaires
- * and file requests. A `kind` column is on the schema-request list all the same.
+ * Form behavior is derived from `form_id`, while `tasks.kind` labels the task
+ * consistently for organizer dashboards and filters.
  */
 import { Form, Link, useNavigation } from "react-router";
 import { and, eq } from "drizzle-orm";

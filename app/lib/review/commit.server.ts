@@ -282,6 +282,7 @@ async function planAcceptComposition(
           sessionId: programId,
           title: template.title,
           description: template.description,
+          kind: template.formId ? "form" : "manual",
           formId: template.formId,
           status: "pending",
           dueAt:

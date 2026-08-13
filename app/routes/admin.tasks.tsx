@@ -11,7 +11,7 @@ import {
   inputClass,
 } from "~/components/portal-ui";
 import { getDb } from "~/db/client.server";
-import { eventPeople, forms, people, sessions, tasks } from "~/db/schema";
+import { eventPeople, forms, people, sessions, taskTemplates, tasks } from "~/db/schema";
 import {
   filterTasks,
   groupBySpeaker,
@@ -33,6 +33,7 @@ import {
 } from "~/lib/portal-progress";
 import {
   PORTAL_TYPE_TO_TARGET,
+  readPortalSchema,
   type PortalFormSchema,
   type PortalFormSettings,
 } from "~/lib/portal-form";
@@ -56,6 +57,7 @@ interface TasksData {
   now: number;
   event: { id: string; name: string; timezone: string } | null;
   roster: RosterPerson[];
+  portalForms: { id: string; name: string; questionCount: number; status: string }[];
   rows: AdminTaskRow[];
   total: number;
   filters: TaskFilters;
@@ -92,14 +94,26 @@ export async function loader({ request }: Route.LoaderArgs): Promise<TasksData> 
       now,
       event: null,
       roster: [],
+      portalForms: [],
       rows: [],
       total: 0,
       filters: { ...parsedFilters, person: "all" },
     };
   }
 
-  const [roster, rawRows] = await Promise.all([
+  const [roster, rawPortalForms, rawRows] = await Promise.all([
     speakerRoster(event.id),
+    getDb()
+      .select({
+        id: forms.id,
+        name: forms.name,
+        schema: forms.schema,
+        status: forms.status,
+      })
+      .from(forms)
+      .where(and(eq(forms.eventId, event.id), eq(forms.surface, "portal")))
+      .orderBy(asc(forms.createdAt))
+      .limit(200),
     getDb()
       .select({
         id: tasks.id,
@@ -137,6 +151,12 @@ export async function loader({ request }: Route.LoaderArgs): Promise<TasksData> 
     now,
     event: { id: event.id, name: event.name, timezone: event.timezone },
     roster,
+    portalForms: rawPortalForms.map((row) => ({
+      id: row.id,
+      name: row.name,
+      questionCount: readPortalSchema(row.schema).questions.length,
+      status: row.status,
+    })),
     rows: filterTasks(rows, filters, now),
     total: rows.length,
     filters,
@@ -167,8 +187,8 @@ export async function action({ request }: Route.ActionArgs) {
     if (instructionsValue.length > 5000) {
       return error("Instructions must be 5,000 characters or fewer.");
     }
-    if (taskType !== "general" && taskType !== "file-request") {
-      return error("Choose either a general task or a file request.");
+    if (taskType !== "general" && taskType !== "file-request" && taskType !== "form") {
+      return error("Choose a general task, file request, or form.");
     }
     if (assignTo !== "selected" && assignTo !== "all") {
       return error("Choose which speakers should receive this task.");
@@ -188,14 +208,28 @@ export async function action({ request }: Route.ActionArgs) {
       return error("Every assignee must belong to this event's speaker roster.");
     }
 
-    const formId = taskType === "file-request" ? crypto.randomUUID() : null;
+    let formId: string | null = taskType === "file-request" ? crypto.randomUUID() : null;
+    if (taskType === "form") {
+      const requestedFormId = requiredText(form, "formId");
+      const selectedForm = requestedFormId
+        ? await db.query.forms.findFirst({
+            where: and(
+              eq(forms.id, requestedFormId),
+              eq(forms.eventId, event.id),
+              eq(forms.surface, "portal"),
+            ),
+          })
+        : undefined;
+      if (!selectedForm) return error("Choose a portal form from this event.");
+      formId = selectedForm.id;
+    }
     const taskRows = personIds.map((personId) => ({
       id: crypto.randomUUID(),
       eventId: event.id,
       personId,
       title,
       description: instructions,
-      kind: taskType === "file-request" ? "upload" as const : "manual" as const,
+      kind: taskType === "file-request" ? "upload" as const : taskType === "form" ? "form" as const : "manual" as const,
       formId,
       status: "pending" as const,
       dueAt: dueAt === null ? null : new Date(dueAt),
@@ -230,6 +264,19 @@ export async function action({ request }: Route.ActionArgs) {
           settings: settings as unknown as Record<string, unknown>,
         }),
         db.insert(tasks).values(taskRows),
+      ]);
+    } else if (taskType === "form" && form.get("alsoTemplate") === "on") {
+      await db.batch([
+        db.insert(tasks).values(taskRows),
+        db.insert(taskTemplates).values({
+          eventId: event.id,
+          title,
+          description: instructions,
+          formId: formId!,
+          dueOffsetDays: null,
+          isRequired: true,
+          order: 0,
+        }),
       ]);
     } else {
       await db.batch([db.insert(tasks).values(taskRows)]);
@@ -403,7 +450,7 @@ function SpeakerView({ groups, now, timeZone }: { groups: SpeakerGroup[]; now: n
   );
 }
 
-export function TasksView({ event, roster, rows, total, filters, now, actionError }: TasksData & { actionError?: string }) {
+export function TasksView({ event, roster, portalForms, rows, total, filters, now, actionError }: TasksData & { actionError?: string }) {
   if (!event) {
     return (
       <section data-testid="admin-tasks" data-task-count="0" className="rounded-xl border border-gray-200 p-6 dark:border-gray-800">
@@ -443,8 +490,23 @@ export function TasksView({ event, roster, rows, total, filters, now, actionErro
           </div>
           <label className="grid gap-1 text-sm">Instructions<textarea className={FIELD} name="instructions" rows={3} maxLength={5000} /></label>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm">Task type<select className={FIELD} name="taskType" defaultValue="general"><option value="general">General</option><option value="file-request">File request</option></select></label>
+            <label className="grid gap-1 text-sm">Task type<select className={FIELD} name="taskType" defaultValue="general"><option value="general">General</option><option value="file-request">File request</option><option value="form">Form</option></select></label>
             <label className="grid gap-1 text-sm">Assignment<select className={FIELD} name="assignTo" defaultValue="selected"><option value="selected">Selected speakers</option><option value="all">All speakers</option></select></label>
+          </div>
+          {/*
+           * Always rendered, never revealed by script. This screen is a plain
+           * server-rendered POST form and the rest of the admin area keeps a
+           * no-JavaScript path (README "works without JavaScript"); hiding the
+           * picker behind an onChange would make Form the one task type an
+           * organizer with JS off can select but never complete — the action
+           * would reject every attempt with "Choose a portal form from this
+           * event." The action ignores `formId` unless taskType is `form`, so
+           * showing it for the other two types costs nothing.
+           */}
+          <div data-form-task-options className="grid gap-4">
+            <label className="grid gap-1 text-sm">Portal form<select className={FIELD} name="formId" defaultValue=""><option value="">Choose a portal form</option>{portalForms.map((form) => <option key={form.id} value={form.id}>{form.name} — {form.questionCount} question{form.questionCount === 1 ? "" : "s"}</option>)}</select></label>
+            {portalForms.length === 0 ? <p className="text-sm text-gray-500 dark:text-gray-400">No portal forms yet. <Link className="underline" to="/admin/portal-forms">Create one in Portal forms</Link> to collect answers from speakers.</p> : null}
+            <label className="flex items-start gap-2 text-sm"><input className="mt-1" type="checkbox" name="alsoTemplate" /><span>Also give this form to speakers accepted later<span className="block text-xs text-gray-500 dark:text-gray-400">Auto-provisioned copies carry no due date.</span></span></label>
           </div>
           <label className="grid gap-1 text-sm">Speakers<select className={FIELD} name="personIds" multiple size={Math.min(Math.max(roster.length, 2), 6)}>{roster.map((person) => <option key={person.id} value={person.id}>{person.fullName?.trim() || person.email} — {person.email}</option>)}</select></label>
           {roster.length === 0 ? <p className="text-sm text-amber-700 dark:text-amber-300">Add speakers to this event before assigning a task.</p> : null}

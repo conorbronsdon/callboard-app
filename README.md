@@ -76,7 +76,7 @@ Suggested walkthrough:
 | Speaker portal | Status, deadline-gated pending corrections, accepted title/abstract/video corrections with programme-copy sync, profile, headshot/material uploads, tasks, portal forms, resources, and organizer impersonation |
 | Communications | Editable templates, confirmation email, task reminders, communication log, and ICS REQUEST/UPDATE/CANCEL lifecycle |
 | Agenda | List/day/week/track/room/conflict views, pointer-correct drag and drop, no-JavaScript fallback, room and speaker overlap detection, an “Auto-place remaining” action that fills unscheduled sessions into conflict-free room/time slots, room and track CRUD, organizer session editing with attributed revision history and one-click restore, publishing that holds until speakers have been informed with an explicit per-session override, and public schedule with ordered speaker/co-speaker names |
-| Speaker roster | Add and edit speakers, participation status, portal-invite send, and CSV import |
+| Speaker roster | Add and edit speakers, participation status, portal-invite send, CSV import, and portal-form custom fields from organizer assignment through speaker answers |
 | API | Scoped keys, consistent envelopes, sessions/speakers/metadata endpoints, OpenAPI document, and developer page |
 | Integrations | Byte-exact Accelevents CSV pair, optional API push when configured, and non-blocking Airtable mirror |
 | Infrastructure | One Cloudflare Worker, D1, R2, React Router framework mode, Drizzle, Tailwind, Vitest, and Playwright |
@@ -136,17 +136,13 @@ existing name overwrites it (`save-segment` and `delete-segment` in
 row and re-parents its memberships, tags, notes, and session participations.
 There is no unmerge action; the UI says so before you confirm.
 
-**Speaker custom fields (travel, dietary, AV needs) have no admin-reachable
-path.** The pipeline is fully built — `app/lib/portal-form.ts` defines typed,
-validated per-speaker questions; `tasks.form_id`/`tasks.response` in
-`app/db/schema.ts` store one speaker's answers; `app/routes/portal.task.tsx`
-renders and saves them; and accepting a submission auto-creates a form task per
-speaker from that event's `task_templates` row
-(`app/lib/review/commit.server.ts:210-292`) — but no `admin.*` route or API
-endpoint ever creates or edits a `task_templates` row, so nothing can attach a
-form to a speaker. The only place one exists is `scripts/seed.mjs`. The one
-live ad-hoc task-creation form (`admin.tasks.tsx:170`) accepts just `general`
-or `file-request`, never `form`.
+**Custom-field tasks provisioned by a later acceptance carry no due date.**
+Assigning a portal form writes an absolute due date onto the speakers chosen at
+the time, but the reusable template it can also write stores
+`dueOffsetDays: null` (`admin.tasks.tsx`), because an absolute date cannot be
+turned into the relative offset templates hold. `commit.server.ts` maps that
+null straight through to a null `dueAt`, so speakers accepted later get the
+questions without a deadline until the organizer sets one on the task.
 
 **Saved embeds cannot be edited in place.** The `save` action always mints a new
 `crypto.randomUUID()`, so changing a widget's theme, track, or accent means

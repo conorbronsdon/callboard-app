@@ -1,18 +1,20 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { events, forms, tasks } from "~/db/schema";
+import { events, forms, taskTemplates, tasks } from "~/db/schema";
 import { createLoginSession } from "~/lib/auth/auth.server";
 import { EVENT_COOKIE_NAME } from "~/lib/event.server";
 import { readPortalSchema } from "~/lib/portal-form";
 import { formatDueDate } from "~/lib/portal-progress";
 import { RATE_LIMIT_POLICIES } from "~/lib/rate-limit.server";
+import { applyAbstractStatus } from "~/lib/review/commit.server";
 import { zonedInputToEpoch } from "~/lib/zoned-time";
 import { signedInGet } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import {
+  CFP_FORM_ID,
   EVENT_SLUG,
   OTHER_EVENT_SLUG,
   SPEAKERS,
@@ -24,6 +26,11 @@ import {
 import { env } from "~/test/workers-env";
 
 import AdminTasks, { TasksView, action, loader } from "./admin.tasks";
+import {
+  SpeakerView,
+  loader as adminSpeakerLoader,
+  speakerLoaderPayload,
+} from "./admin.speaker";
 import PortalTask, { action as portalTaskAction, loader as portalTaskLoader } from "./portal.task";
 import PortalTasks, { loader as portalTasksLoader } from "./portal.tasks";
 
@@ -31,6 +38,7 @@ type LoaderArgs = Parameters<typeof loader>[0];
 type ActionArgs = Parameters<typeof action>[0];
 type PortalTaskArgs = Parameters<typeof portalTaskLoader>[0];
 type PortalTasksArgs = Parameters<typeof portalTasksLoader>[0];
+type AdminSpeakerArgs = Parameters<typeof adminSpeakerLoader>[0];
 
 const args = (request: Request) => ({ request, params: {}, context: {} }) as unknown as LoaderArgs;
 const actionArgs = (request: Request) => ({ request, params: {}, context: {} }) as unknown as ActionArgs;
@@ -39,6 +47,9 @@ const portalArgs = (request: Request, taskId: string) =>
 
 let ctx: TestDbContext;
 let fixture: DemoFixture;
+
+const PORTAL_FORM_ID = "46000000-0000-4000-8000-000000000001";
+const OTHER_PORTAL_FORM_ID = "46000000-0000-4000-8000-000000000002";
 
 beforeEach(async () => {
   ctx = installTestDb();
@@ -95,6 +106,46 @@ async function createFileRequest(title: string, dueOn: string, assignTo = "all")
   ]);
 }
 
+async function createPortalForm(options: {
+  id?: string;
+  eventId?: string;
+  name?: string;
+  schema?: Record<string, unknown>;
+} = {}) {
+  const id = options.id ?? PORTAL_FORM_ID;
+  await ctx.db.insert(forms).values({
+    id,
+    eventId: options.eventId ?? fixture.eventId,
+    surface: "portal",
+    target: "submission",
+    status: "open",
+    name: options.name ?? "Speaker logistics",
+    schema: options.schema ?? {
+      sectionTitle: "Travel and dietary details",
+      questions: [
+        { key: "travel_date", label: "Travel arrival date", type: "date" },
+        { key: "dietary_needs", label: "Dietary needs", type: "textarea" },
+      ],
+    },
+    settings: { surface: "portal", type: "submissions", requireLogin: true },
+  });
+  return id;
+}
+
+async function createFormTask(
+  formId: string,
+  title = "Complete speaker logistics",
+  people = fixture.speakerIds.slice(0, 2),
+  alsoTemplate = false,
+) {
+  return post([
+    ["intent", "create"], ["title", title], ["instructions", "Tell us what you need."],
+    ["taskType", "form"], ["formId", formId], ["assignTo", "selected"],
+    ...people.map((id) => ["personIds", id] as [string, string]),
+    ...(alsoTemplate ? [["alsoTemplate", "on"] as [string, string]] : []),
+  ]);
+}
+
 function count(table: "tasks" | "forms", eventId = fixture.eventId): number {
   return (ctx.sqlite.prepare(`select count(*) as n from ${table} where event_id = ?`).get(eventId) as { n: number }).n;
 }
@@ -142,9 +193,9 @@ describe("organizer task creation", () => {
     const rows = await ctx.db.select().from(tasks).where(eq(tasks.title, "Confirm participation")).orderBy(asc(tasks.personId));
     expect(count("tasks")).toBe(before + 2);
     expect(rows.map((row) => row.personId)).toEqual([...fixture.speakerIds.slice(0, 2)].sort());
-    expect(rows.map((row) => ({ title: row.title, status: row.status, kind: row.kind, dueAt: row.dueAt?.getTime() }))).toEqual([
-      { title: "Confirm participation", status: "pending", kind: "manual", dueAt: zonedInputToEpoch("2027-04-01T23:59", "America/Los_Angeles") },
-      { title: "Confirm participation", status: "pending", kind: "manual", dueAt: zonedInputToEpoch("2027-04-01T23:59", "America/Los_Angeles") },
+    expect(rows.map((row) => ({ title: row.title, status: row.status, kind: row.kind, formId: row.formId, response: row.response, dueAt: row.dueAt?.getTime() }))).toEqual([
+      { title: "Confirm participation", status: "pending", kind: "manual", formId: null, response: null, dueAt: zonedInputToEpoch("2027-04-01T23:59", "America/Los_Angeles") },
+      { title: "Confirm participation", status: "pending", kind: "manual", formId: null, response: null, dueAt: zonedInputToEpoch("2027-04-01T23:59", "America/Los_Angeles") },
     ]);
   });
 
@@ -184,8 +235,11 @@ describe("organizer task creation", () => {
     const before = count("forms");
     await createManual("General without a form");
     expect(count("forms")).toBe(before);
-    const rows = await ctx.db.select({ formId: tasks.formId }).from(tasks).where(eq(tasks.title, "General without a form"));
-    expect(rows.map((row) => row.formId)).toEqual([null, null]);
+    const rows = await ctx.db.select({ kind: tasks.kind, formId: tasks.formId, response: tasks.response }).from(tasks).where(eq(tasks.title, "General without a form"));
+    expect(rows).toEqual([
+      { kind: "manual", formId: null, response: null },
+      { kind: "manual", formId: null, response: null },
+    ]);
   });
 
   it("must fire: complete reopen and delete mutate only the chosen row", async () => {
@@ -209,6 +263,7 @@ describe("organizer task creation", () => {
 
 describe("organizer file requests and portal coexistence", () => {
   it("must fire: creates one shared file form and a pending upload row for every roster speaker", async () => {
+    const formsBefore = count("forms");
     await createFileRequest("Upload Session Presentation", "2027-05-01");
     const rows = await ctx.db.select().from(tasks).where(eq(tasks.title, "Upload Session Presentation"));
     expect(rows).toHaveLength(8);
@@ -218,7 +273,13 @@ describe("organizer file requests and portal coexistence", () => {
     expect(rows.map((row) => [row.kind, row.status, row.dueAt?.getTime()])).toEqual(
       Array(8).fill(["upload", "pending", zonedInputToEpoch("2027-05-01T23:59", "America/Los_Angeles")]),
     );
+    expect(rows.map((row) => row.response)).toEqual(Array(8).fill(null));
+    expect(count("forms")).toBe(formsBefore + 1);
     const form = await ctx.db.query.forms.findFirst({ where: eq(forms.id, rows[0].formId!) });
+    expect(form?.id).toBe(rows[0].formId);
+    expect(form?.eventId).toBe(fixture.eventId);
+    expect(form?.surface).toBe("portal");
+    expect(form?.name).toBe("Upload Session Presentation");
     expect(readPortalSchema(form?.schema).questions).toEqual([{ key: "deliverable", label: "Upload your file", type: "file", required: true, filePurpose: "document" }]);
   });
 
@@ -257,6 +318,196 @@ describe("organizer file requests and portal coexistence", () => {
     const row = await ctx.db.query.tasks.findFirst({ where: eq(tasks.title, "Private assignment") });
     const request = await signedInGet(`https://x.test/portal/tasks/${row!.id}`, fixture.speakerIds[1]);
     await expect(portalTaskLoader(portalArgs(request, row!.id))).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("organizer-authored portal form tasks", () => {
+  it("must fire: creates exactly one form task per selected speaker with the chosen form id", async () => {
+    await createPortalForm();
+    const before = count("tasks");
+
+    const response = await createFormTask(PORTAL_FORM_ID);
+
+    expect((response as Response).status).toBe(302);
+    const rows = await ctx.db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.title, "Complete speaker logistics"))
+      .orderBy(asc(tasks.personId));
+    expect(count("tasks")).toBe(before + 2);
+    expect(rows.map((row) => row.personId)).toEqual([...fixture.speakerIds.slice(0, 2)].sort());
+    expect(rows.map((row) => ({ kind: row.kind, formId: row.formId, response: row.response }))).toEqual([
+      { kind: "form", formId: PORTAL_FORM_ID, response: null },
+      { kind: "form", formId: PORTAL_FORM_ID, response: null },
+    ]);
+  });
+
+  it.each([
+    ["missing", [] as [string, string][]],
+    ["blank", [["formId", " "]] as [string, string][]],
+  ])("must NOT fire: a %s form id writes no task rows", async (_label, formIdFields) => {
+    const before = count("tasks");
+    const response = await post([
+      ["intent", "create"], ["title", "Invalid form assignment"],
+      ["taskType", "form"], ["assignTo", "selected"],
+      ["personIds", fixture.speakerIds[0]], ...formIdFields,
+    ]);
+    expect(response).toEqual({ ok: false, error: "Choose a portal form from this event." });
+    expect(count("tasks")).toBe(before);
+    expect(await ctx.db.query.tasks.findFirst({ where: eq(tasks.title, "Invalid form assignment") })).toBeUndefined();
+  });
+
+  it("must NOT fire: another event's portal form writes no task rows", async () => {
+    const other = await seedOtherEvent(ctx.db);
+    await createPortalForm({ id: OTHER_PORTAL_FORM_ID, eventId: other.eventId, name: "Europe logistics" });
+    const before = count("tasks");
+
+    const response = await createFormTask(OTHER_PORTAL_FORM_ID, "Cross-event form theft", [fixture.speakerIds[0]]);
+
+    expect(response).toEqual({ ok: false, error: "Choose a portal form from this event." });
+    expect(count("tasks")).toBe(before);
+    expect(await ctx.db.query.tasks.findFirst({ where: eq(tasks.title, "Cross-event form theft") })).toBeUndefined();
+  });
+
+  it("must NOT fire: this event's CFP form writes no task rows", async () => {
+    const before = count("tasks");
+
+    const response = await createFormTask(CFP_FORM_ID, "CFP form misuse", [fixture.speakerIds[0]]);
+
+    expect(response).toEqual({ ok: false, error: "Choose a portal form from this event." });
+    expect(count("tasks")).toBe(before);
+    expect(await ctx.db.query.tasks.findFirst({ where: eq(tasks.title, "CFP form misuse") })).toBeUndefined();
+  });
+
+  it("must fire: loader and authoring markup expose the pinned portal form values", async () => {
+    await createPortalForm({ name: "Speaker logistics" });
+
+    const data = await load();
+
+    expect(data.portalForms).toEqual([
+      { id: PORTAL_FORM_ID, name: "Speaker logistics", questionCount: 2, status: "open" },
+    ]);
+    const html = renderWithRouter(<TasksView {...data} />);
+    expect(html).toContain('<option value="form">Form</option>');
+    expect(html).toContain(`value="${PORTAL_FORM_ID}"`);
+    expect(html).toContain("Speaker logistics — 2 questions");
+    expect(html).toContain('name="alsoTemplate"');
+    expect(html).toContain("Also give this form to speakers accepted later");
+  });
+
+  /*
+   * The picker has to survive with scripting off, because that is the only
+   * state this screen has ever run in — the create form is a plain POST and
+   * carries no client handlers. Shipped hidden behind an onChange it looked
+   * fine in every other assertion here (a `hidden` element is still in the
+   * markup and still matches `toContain`), while an organizer without JS could
+   * choose Form and then never reach the select the action demands.
+   */
+  it("must NOT fire: the portal-form picker is never hidden behind a script-only reveal", async () => {
+    await createPortalForm({ name: "Speaker logistics" });
+
+    const html = renderWithRouter(<TasksView {...(await load())} />);
+
+    const optionsBlock = html.match(/<div[^>]*data-form-task-options[^>]*>/);
+    expect(optionsBlock).not.toBeNull();
+    expect(optionsBlock![0]).not.toMatch(/\bhidden\b/);
+    expect(html).toContain('name="formId"');
+  });
+
+  it("must NOT fire: zero portal forms renders the linked authoring hint", async () => {
+    const data = await load();
+    expect(data.portalForms).toEqual([]);
+    const html = renderWithRouter(<TasksView {...data} />);
+    expect(html).toContain("No portal forms yet.");
+    expect(html).toContain("Create one in Portal forms");
+    expect(html).toContain("to collect answers from speakers.");
+    expect(html).toContain('href="/admin/portal-forms"');
+  });
+
+  it("must fire: form answers travel from admin assignment through the portal into the speaker custom-fields panel", async () => {
+    await createPortalForm();
+    await createFormTask(PORTAL_FORM_ID, "Complete speaker logistics", [fixture.speakerIds[0]]);
+    const task = await ctx.db.query.tasks.findFirst({
+      where: and(eq(tasks.title, "Complete speaker logistics"), eq(tasks.personId, fixture.speakerIds[0])),
+    });
+
+    const signed = await signedInGet(`https://x.test/portal/tasks/${task!.id}`, fixture.speakerIds[0]);
+    const request = new Request(signed.url, {
+      method: "POST",
+      headers: {
+        cookie: signed.headers.get("cookie") as string,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        intent: "submit-form",
+        travel_date: "2027-03-31",
+        dietary_needs: "Vegetarian, no shellfish",
+      }),
+    });
+    await portalTaskAction(portalArgs(request, task!.id) as never);
+
+    const completed = await ctx.db.query.tasks.findFirst({ where: eq(tasks.id, task!.id) });
+    expect(completed?.response).toEqual({
+      travel_date: "2027-03-31",
+      dietary_needs: "Vegetarian, no shellfish",
+    });
+
+    const adminData = speakerLoaderPayload(
+      await adminSpeakerLoader({
+        request: await adminRequest(`https://x.test/admin/speakers/${fixture.speakerIds[0]}`),
+        params: { id: fixture.speakerIds[0] },
+        context: {},
+      } as unknown as AdminSpeakerArgs),
+    );
+    const html = renderToStaticMarkup(<SpeakerView {...adminData} />);
+    expect(html).toContain("Travel arrival date");
+    expect(html).toContain("2027-03-31");
+    expect(html).toContain("Dietary needs");
+    expect(html).toContain("Vegetarian, no shellfish");
+    expect(html).not.toContain(">travel_date<");
+    expect(html).not.toContain(">dietary_needs<");
+  });
+
+  it("must fire: a future-acceptance template preserves the form id and mints a form-kind task", async () => {
+    await createPortalForm();
+    await createFormTask(
+      PORTAL_FORM_ID,
+      "Complete speaker logistics",
+      [fixture.speakerIds[0]],
+      true,
+    );
+
+    const template = await ctx.db.query.taskTemplates.findFirst({
+      where: eq(taskTemplates.formId, PORTAL_FORM_ID),
+    });
+    expect(template).toMatchObject({
+      eventId: fixture.eventId,
+      title: "Complete speaker logistics",
+      description: "Tell us what you need.",
+      formId: PORTAL_FORM_ID,
+      dueOffsetDays: null,
+      isRequired: true,
+      order: 0,
+    });
+
+    const abstractId = fixture.abstractIds[3];
+    await applyAbstractStatus({
+      eventId: fixture.eventId,
+      abstractId,
+      status: "accepted",
+      db: ctx.db,
+      notify: false,
+    });
+    const accepted = await ctx.db.query.tasks.findFirst({
+      where: and(
+        eq(tasks.personId, fixture.speakerIds[3]),
+        eq(tasks.formId, PORTAL_FORM_ID),
+      ),
+    });
+    expect(accepted?.templateId).toBe(template!.id);
+    expect(accepted?.formId).toBe(PORTAL_FORM_ID);
+    expect(accepted?.kind).toBe("form");
+    expect(accepted?.dueAt).toBeNull();
   });
 });
 
@@ -417,7 +668,7 @@ describe("task event isolation and scoped actions", () => {
   it("must NOT fire: no-event loader returns its isolated empty shape", async () => {
     await ctx.db.delete(events);
     const data = await load();
-    expect(data).toMatchObject({ event: null, roster: [], rows: [], total: 0 });
+    expect(data).toMatchObject({ event: null, roster: [], portalForms: [], rows: [], total: 0 });
     expect(renderWithRouter(<TasksView {...data} />)).toContain('data-task-count="0"');
   });
 });

@@ -183,7 +183,7 @@ test("a filtered directory is saved as a named segment, replayed, and deleted", 
   const NAME = "Returning speakers";
 
   // Nothing saved, and saving is refused until there is something to save.
-  await expect(segments).toContainText("None yet");
+  await expect(segments).toContainText("No saved segments yet");
   await expect(segments.getByRole("button", { name: "Save as segment" })).toBeDisabled();
 
   const unfiltered = await bodyRows.count();
@@ -226,7 +226,7 @@ test("a filtered directory is saved as a named segment, replayed, and deleted", 
     .getByRole("button", { name: `Delete segment ${NAME}` })
     .click();
   await expect(page.getByRole("status")).toContainText(NAME);
-  await expect(page.getByTestId("contact-segments")).toContainText("None yet");
+  await expect(page.getByTestId("contact-segments")).toContainText("No saved segments yet");
   await expect(
     page.getByTestId("contact-segments").getByRole("link", { name: NAME }),
   ).toHaveCount(0);

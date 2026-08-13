@@ -6,14 +6,15 @@
  * send us?" without leaving the review flow. Per-speaker task completion and
  * comms history are WS6's onboarding dashboard, not this page.
  *
- * TWO concurrent statements (profile + submissions), then no further queries.
+ * FIVE concurrent statements, including uploads and custom-field form tasks,
+ * then no further queries.
  *
  * ⚠️ `Promise.all`, not `db.batch`: the submissions query joins `tracks.name`
  * and `formats.name`, and `db.batch` maps D1's object rows with `Object.values`,
  * where two columns called `name` collapse into one and shift the rest. See the
  * same note in admin.submission.tsx.
  */
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { data } from "react-router";
 
 import { StatusPill } from "~/components/admin-status";
@@ -24,10 +25,12 @@ import { Avatar } from "~/components/portal-ui";
 import { getDb } from "~/db/client.server";
 import {
   eventPeople,
+  forms,
   formats,
   people,
   sessionParticipants,
   sessions,
+  tasks,
   tracks,
   uploads,
   type SessionStatus,
@@ -42,6 +45,7 @@ import { appUrl } from "~/lib/env.server";
 import { currentEvent } from "~/lib/event.server";
 import { getMailer } from "~/lib/mail/mailer.server";
 import { storeUpload } from "~/lib/portal/uploads.server";
+import { readPortalSchema } from "~/lib/portal-form";
 import { ACCEPT_ATTRIBUTE, formatBytes } from "~/lib/portal-uploads";
 import { RATE_LIMIT_POLICIES, enforceRateLimit } from "~/lib/rate-limit.server";
 import { socialHref } from "~/lib/social-href";
@@ -60,6 +64,14 @@ export interface SpeakerSubmission {
   isPrimary: boolean;
   trackName: string | null;
   formatName: string | null;
+}
+
+export interface SpeakerCustomFieldTask {
+  taskId: string;
+  taskTitle: string;
+  formName: string;
+  status: string;
+  answers: { key: string; label: string; value: string | null }[];
 }
 
 const BIO_MAX = 5000;
@@ -251,11 +263,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     headshot: null as null | { uploadId: string; filename: string; size: string },
     submissions: [] as SpeakerSubmission[],
     files: [] as LibraryChain[],
+    customFields: [] as SpeakerCustomFieldTask[],
   };
   if (!event) return empty;
 
   const db = getDb();
-  const [personResult, submissionResult, uploadResult, headshotResult] = await Promise.all([
+  const [personResult, submissionResult, uploadResult, headshotResult, customFieldResult] = await Promise.all([
     db
       .select({
         person: people,
@@ -331,6 +344,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .innerJoin(people, eq(people.headshotKey, uploads.key))
       .where(eq(people.id, params.id))
       .limit(1),
+    db
+      .select({
+        taskId: tasks.id,
+        taskTitle: tasks.title,
+        status: tasks.status,
+        response: tasks.response,
+        formName: forms.name,
+        schema: forms.schema,
+      })
+      .from(tasks)
+      .innerJoin(forms, eq(tasks.formId, forms.id))
+      .where(and(eq(tasks.personId, params.id), eq(tasks.eventId, event.id)))
+      .orderBy(asc(tasks.createdAt))
+      .limit(100),
   ]);
 
   const found = personResult[0];
@@ -346,6 +373,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
    */
   if (!found) return data(empty, { status: 404 });
   const headshotRow = headshotResult[0];
+  const uploadNames = new Map(uploadResult.map((row) => [row.upload.id, row.upload.filename]));
 
   return {
     speaker: {
@@ -371,6 +399,36 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         }
       : null,
     submissions: submissionResult,
+    customFields: customFieldResult.map((row) => {
+      const response = (row.response ?? {}) as Record<string, unknown>;
+      return {
+        taskId: row.taskId,
+        taskTitle: row.taskTitle,
+        formName: row.formName,
+        status: row.status,
+        answers: readPortalSchema(row.schema).questions.map((question) => {
+          const raw = response[question.key];
+          let value: string | null;
+          if (
+            raw === null ||
+            raw === undefined ||
+            raw === "" ||
+            (Array.isArray(raw) && raw.length === 0)
+          ) {
+            value = null;
+          } else if (question.type === "file") {
+            value = typeof raw === "string" ? uploadNames.get(raw) ?? "File uploaded" : null;
+          } else if (Array.isArray(raw)) {
+            value = raw.map(String).join(", ");
+          } else if (typeof raw === "boolean") {
+            value = raw ? "Yes" : "No";
+          } else {
+            value = String(raw);
+          }
+          return { key: question.key, label: question.label, value };
+        }),
+      };
+    }),
     files: buildLibrary(
       uploadResult.map(
         (row): LibraryRow => ({
@@ -437,6 +495,7 @@ export function SpeakerView({
   speaker,
   headshot,
   submissions,
+  customFields,
   files,
   actionData,
 }: SpeakerLoaderData & {
@@ -548,6 +607,38 @@ export function SpeakerView({
             </div>
           ) : null}
         </dl>
+      </section>
+
+      <section className={CARD} data-testid="speaker-custom-fields">
+        <h3 className="mb-2 font-semibold">
+          Custom fields
+        </h3>
+        {customFields.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            No custom fields for this speaker. Answers appear here when they complete an assigned portal form.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {customFields.map((task) => (
+              <div key={task.taskId}>
+                <p className="text-sm font-medium">{task.formName}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{task.taskTitle} · {task.status}</p>
+                <dl className="mt-2 space-y-2" data-testid="speaker-custom-field-answers">
+                  {task.answers.map((answer) => (
+                    <div key={answer.key}>
+                      <dt className="text-xs font-medium text-gray-500">{answer.label}</dt>
+                      <dd className="mt-0.5 text-sm">
+                        {answer.value === null ? (
+                          <span className="text-gray-500 italic">Not answered yet</span>
+                        ) : answer.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className={CARD} data-testid="speaker-headshot">

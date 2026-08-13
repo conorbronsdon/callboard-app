@@ -109,6 +109,13 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
       nav={[
         { to: "/admin", label: "Dashboard", end: true },
         { to: "/admin/forms", label: "Forms" },
+        /*
+         * `/admin/portal-forms` shipped routed but unlinked — nothing in the
+         * app pointed at it, so the speaker-question builder was reachable
+         * only by typing the URL. Speaker custom fields start here, so the
+         * entry sits beside the CFP builder it is the smaller sibling of.
+         */
+        { to: "/admin/portal-forms", label: "Portal forms" },
         { to: "/admin/submissions", label: "Submissions" },
         { to: "/admin/reviews", label: "Review ops" },
         { to: reviewerWorkspace, label: "Reviewer workspace" },

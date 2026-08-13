@@ -5,7 +5,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { people, uploads } from "~/db/schema";
+import { forms, people, tasks, uploads } from "~/db/schema";
 import { storeUpload } from "~/lib/portal/uploads.server";
 import { signedInGet } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
@@ -78,6 +78,42 @@ async function uploadForSpeaker(
   return result.upload;
 }
 
+async function createCustomFieldTask(options: {
+  formId?: string;
+  taskId?: string;
+  response?: Record<string, unknown> | null;
+  questions?: Record<string, unknown>[];
+} = {}) {
+  const formId = options.formId ?? "47000000-0000-4000-8000-000000000001";
+  const taskId = options.taskId ?? "47000000-0000-4000-8000-000000000002";
+  await ctx.db.insert(forms).values({
+    id: formId,
+    eventId: fixture.eventId,
+    name: "Speaker custom details",
+    surface: "portal",
+    target: "submission",
+    status: "open",
+    schema: {
+      sectionTitle: "Speaker details",
+      questions: options.questions ?? [
+        { key: "arrival", label: "Arrival time", type: "text" },
+        { key: "dietary", label: "Dietary needs", type: "textarea" },
+      ],
+    },
+    settings: { surface: "portal", type: "submissions", requireLogin: true },
+  });
+  await ctx.db.insert(tasks).values({
+    id: taskId,
+    eventId: fixture.eventId,
+    personId: fixture.speakerIds[0],
+    title: "Complete speaker details",
+    kind: "form",
+    formId,
+    response: options.response ?? null,
+  });
+  return { formId, taskId };
+}
+
 describe("loader", () => {
   it("returns the profile and everything that person is on", async () => {
     const data = await load(fixture.speakerIds[0]);
@@ -114,6 +150,7 @@ describe("loader", () => {
     const data = await load("no-such-person");
     expect(data.speaker).toBeNull();
     expect(data.submissions).toEqual([]);
+    expect(data.customFields).toEqual([]);
   });
 });
 
@@ -162,6 +199,90 @@ describe("render", () => {
   it("renders the not-found state instead of throwing", async () => {
     const html = renderToStaticMarkup(<SpeakerView {...(await load("no-such-person"))} />);
     expect(html).toContain("No such person in this event.");
+  });
+});
+
+describe("speaker custom fields", () => {
+  it("must NOT fire: a speaker with no form tasks renders the house zero state and no answers list", async () => {
+    const data = await load(fixture.speakerIds[0]);
+    expect(data.customFields).toEqual([]);
+
+    const html = renderToStaticMarkup(<SpeakerView {...data} />);
+    expect(html).toContain('data-testid="speaker-custom-fields"');
+    expect(html).toContain("No custom fields for this speaker.");
+    expect(html).toContain("Answers appear here when they complete an assigned portal form.");
+    expect(html).not.toContain('data-testid="speaker-custom-field-answers"');
+  });
+
+  it("must fire: every unanswered schema question renders the distinct marker instead of a blank dd", async () => {
+    await createCustomFieldTask();
+
+    const data = await load(fixture.speakerIds[0]);
+    expect(data.customFields).toEqual([
+      {
+        taskId: "47000000-0000-4000-8000-000000000002",
+        taskTitle: "Complete speaker details",
+        formName: "Speaker custom details",
+        status: "pending",
+        answers: [
+          { key: "arrival", label: "Arrival time", value: null },
+          { key: "dietary", label: "Dietary needs", value: null },
+        ],
+      },
+    ]);
+    const html = renderToStaticMarkup(<SpeakerView {...data} />);
+    expect(html).toContain("Arrival time");
+    expect(html).toContain("Dietary needs");
+    expect(html.match(/Not answered yet/g) ?? []).toHaveLength(2);
+    expect(html).not.toContain("<dd></dd>");
+  });
+
+  it("must fire: arrays booleans and file ids render as organizer-readable values", async () => {
+    const upload = await uploadForSpeaker(fixture.speakerIds[0], "speaker rider", {
+      filename: "sam-rider.pdf",
+    });
+    await createCustomFieldTask({
+      questions: [
+        { key: "dietary", label: "Dietary preferences", type: "multiselect" },
+        { key: "recording", label: "Recording permission", type: "checkbox" },
+        { key: "needs_rehearsal", label: "Needs rehearsal", type: "checkbox" },
+        { key: "rider", label: "Technical rider", type: "file" },
+        { key: "session_file", label: "Session-owned file", type: "file" },
+      ],
+      response: {
+        dietary: ["Vegan", "Nut-free"],
+        recording: true,
+        needs_rehearsal: false,
+        rider: upload.id,
+        session_file: "47000000-0000-4000-8000-000000000099",
+      },
+    });
+
+    const data = await load(fixture.speakerIds[0]);
+    expect(data.customFields[0].answers).toEqual([
+      { key: "dietary", label: "Dietary preferences", value: "Vegan, Nut-free" },
+      { key: "recording", label: "Recording permission", value: "Yes" },
+      { key: "needs_rehearsal", label: "Needs rehearsal", value: "No" },
+      { key: "rider", label: "Technical rider", value: "sam-rider.pdf" },
+      { key: "session_file", label: "Session-owned file", value: "File uploaded" },
+    ]);
+    const html = renderToStaticMarkup(<SpeakerView {...data} />);
+    for (const value of [
+      "Dietary preferences",
+      "Vegan, Nut-free",
+      "Recording permission",
+      "Yes",
+      "Needs rehearsal",
+      "No",
+      "Technical rider",
+      "sam-rider.pdf",
+      "Session-owned file",
+      "File uploaded",
+    ]) {
+      expect(html).toContain(value);
+    }
+    expect(html).not.toContain(">dietary<");
+    expect(html).not.toContain(">recording<");
   });
 });
 
