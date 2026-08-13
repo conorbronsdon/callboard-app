@@ -37,7 +37,7 @@
  * Exit 0 = table, command, and both regexes agree. Exit 1 = they don't, OR
  * the self-test failed (in which case the real scan below did not run).
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -266,6 +266,41 @@ function main() {
     process.exit(1);
   }
 
+  /*
+   * The public release tree strips this doc on purpose (it documents a
+   * private-repo process). Absence is legitimate ONLY when the tree is
+   * consistently public: every canary the strip list removes must be gone
+   * too. A private tree that merely lost the doc still fails loudly — a
+   * gate that can't find its target must not report ok.
+   */
+  if (!existsSync(DOC_PATH)) {
+    const canaries = [
+      "PLAN.md",
+      "HANDOFF.md",
+      "REMOTE.md",
+      "TOKENS.md",
+      "RELEASE_CUTOVER.md",
+      "RELEASE_HARDENING.md",
+      "PRODUCT_FEEDBACK.md",
+      "BLINDING-PROOFS.md",
+      "RECUSAL-PROOFS.md",
+      "BONUS_IDEAS.md",
+      "research",
+    ];
+    const stragglers = canaries.filter((name) => existsSync(resolve(root, name)));
+    if (stragglers.length > 0) {
+      console.error(
+        "check-strip-list: FAILED — docs/PUBLIC_STRIP_LIST.md is missing but private files are present: " +
+          stragglers.join(", ") +
+          ". Either restore the doc or this tree is a broken export.",
+      );
+      process.exit(1);
+    }
+    console.log(
+      "check-strip-list: ok — public release tree (strip-list doc and all stripped canaries absent).",
+    );
+    process.exit(0);
+  }
   const text = readFileSync(DOC_PATH, "utf8");
   const problems = findProblems(text);
   if (problems.length > 0) {
