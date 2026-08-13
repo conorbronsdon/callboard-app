@@ -171,6 +171,10 @@ describe("the archive", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/zip");
     expect(response.headers.get("content-disposition")).toContain("attachment");
+    // The bulk ZIP is a fresh, private, selection-dependent export of live D1
+    // rows — armor added during the blindspot audit, pinning cache behavior
+    // that was already correct but had never been asserted.
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
 
     const archive = new Uint8Array(await response.arrayBuffer());
     expect(Array.from(archive.slice(0, 4))).toEqual([0x50, 0x4b, 0x03, 0x04]);

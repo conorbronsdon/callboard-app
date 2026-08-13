@@ -417,3 +417,95 @@ describe("multi-round rubric scoring", () => {
     expect(html.match(/name="score-relevance"/g)).toHaveLength(2);
   });
 });
+
+/**
+ * Conor's live-demo report: "the review scoring shows the values, but I
+ * can't click in and fill them out — should I be doing it somewhere else or
+ * is that a mistake?" By design (DECISIONS #53): review authority is
+ * event-scoped team membership plus an assignment in an open round, so an
+ * organizer who is not on the assigned team gets `canReview: false` and the
+ * fields render `disabled`. That is correct — but the unfixed markup keeps
+ * every input, the select, the textarea and the submit button in the DOM,
+ * still labelled and bordered like a working form, just inert. A scorecard
+ * that ALREADY has the organizer's own prior values in it (e.g. they were
+ * on the team, scored it, then were moved off) makes this worse: real
+ * numbers sit in boxes that look editable and are not.
+ *
+ * The fix is presentation, not permissions: `!canReview` now renders plain
+ * text (no input/select/textarea/button at all) plus an inline pointer to
+ * the reviewer workspace (`/admin/view-as`) — "somewhere else" answered on
+ * the page instead of left to a support question.
+ * tests/e2e/admin-review-readonly.spec.ts proves that link actually lands a
+ * reviewer's own editable scorecard; this file pins the render.
+ */
+describe("review scorecard: read-only presentation when not on the assigned team", () => {
+  it("must fire: no team assignment at all renders read-only with the reviewer-workspace pointer", async () => {
+    // fixture.abstractIds[4] has a round (ROUND_ONE exists event-wide) but no
+    // review_assignments row naming the admin's team — the same target the
+    // "unassigned reviewer" action test above uses.
+    const html = renderToStaticMarkup(
+      <SubmissionDetailView {...(await load(fixture.abstractIds[4]))} />,
+    );
+
+    expect(html).toContain('data-testid="review-round-1-readonly-notice"');
+    expect(html).toContain("Your reviewer teams are not assigned to this submission in this round.");
+    expect(html).toContain("Scores are entered in the reviewer workspace");
+    expect(html).toContain('href="/admin/view-as"');
+    expect(html).toContain(">open as reviewer<");
+
+    // The whole point: nothing left to click that does not work.
+    expect(html).not.toMatch(/<input[^>]+name="score-/);
+    expect(html).not.toMatch(/<select[^>]+name="score-/);
+    expect(html).not.toContain('name="comment"');
+    expect(html).not.toContain(">Submit score<");
+    expect(html).not.toContain(">Update score<");
+  });
+
+  it("must NOT fire: an assigned round stays a live form with no read-only notice", async () => {
+    // fixture.abstractIds[3] is the ROUND_ONE/TEAM_ONE target every other
+    // test in this file scores successfully — canReview must still be true
+    // and the form must still be the form, not collateral damage from the
+    // read-only branch.
+    const html = renderToStaticMarkup(
+      <SubmissionDetailView {...(await load(fixture.abstractIds[3]))} />,
+    );
+
+    expect(html).not.toContain("readonly-notice");
+    expect(html).not.toContain("Scores are entered in the reviewer workspace");
+    expect(html).toMatch(/<input[^>]+name="score-relevance"/);
+    expect(html).toContain(">Submit score<");
+  });
+
+  it("must fire: a round the admin can no longer review still shows their OWN prior score, read-only", async () => {
+    const target = fixture.abstractIds[3];
+    await post(target, {
+      intent: "save-review",
+      roundId: ROUND_ONE,
+      "score-relevance": "4",
+      "score-depth": "5",
+      "score-speaker": "3",
+      comment: "Scored while still on the team.",
+    });
+
+    // The organizer is moved off the team after scoring — canReview flips to
+    // false, but the review row (and its scores) is untouched.
+    await ctx.db
+      .delete(reviewTeamMembers)
+      .where(
+        and(eq(reviewTeamMembers.teamId, TEAM_ONE), eq(reviewTeamMembers.personId, fixture.adminId)),
+      );
+
+    const html = renderToStaticMarkup(<SubmissionDetailView {...(await load(target))} />);
+
+    expect(html).toContain('data-testid="review-round-1-readonly-notice"');
+    expect(html).toContain("Scores are entered in the reviewer workspace");
+    // The prior values are still ON the page …
+    expect(html).toContain("Relevance");
+    expect(html).toMatch(/Relevance[^]*?>4</);
+    expect(html).toMatch(/Technical depth[^]*?>5</);
+    expect(html).toContain("Scored while still on the team.");
+    // … but never inside an input a click could open.
+    expect(html).not.toMatch(/<input[^>]+name="score-relevance"/);
+    expect(html).not.toContain('name="comment"');
+  });
+});

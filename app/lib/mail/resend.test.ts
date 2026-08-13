@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { icsContentType } from "~/lib/comms/ics";
+import { withStrictFetch } from "~/test/workerd-fetch";
 
 import { ResendMailer, RESEND_ENDPOINT, buildResendPayload, fromBase64, toBase64 } from "./resend";
 import type { MailMessage } from "./mailer";
@@ -224,27 +225,12 @@ describe("the default fetch is called with the right receiver", () => {
    * workerd's contract in Node.
    */
   it("MUST-NOT-FIRE: no illegal invocation when fetchImpl is left to default", async () => {
-    const original = globalThis.fetch;
-    const seen: unknown[] = [];
-    // A non-arrow function so `this` is whatever the call site supplies.
-    globalThis.fetch = function (this: unknown) {
-      seen.push(this);
-      if (this !== undefined && this !== globalThis) {
-        throw new TypeError(
-          "Illegal invocation: function called with incorrect `this` reference.",
-        );
-      }
-      return Promise.resolve(new Response('{"id":"bound"}', { status: 200 }));
-    } as unknown as typeof fetch;
-
-    try {
+    await withStrictFetch(async (calls) => {
       const mailer = new ResendMailer({ apiKey: "k", from: "a@b.test" });
       const result = await mailer.send(message());
       expect(result).toEqual({ ok: true, id: "bound" });
-      expect(seen[0]).toBe(globalThis);
-    } finally {
-      globalThis.fetch = original;
-    }
+      expect(calls[0]?.receiver).toBe(globalThis);
+    }, () => new Response('{"id":"bound"}', { status: 200 }));
   });
 });
 

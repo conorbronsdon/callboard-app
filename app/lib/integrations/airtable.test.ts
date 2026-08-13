@@ -6,11 +6,12 @@
  * send — URL, verb, upsert key, batch size — rather than about a mock's shape.
  */
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { people, sessionParticipants, sessions, syncState } from "~/db/schema";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, SPEAKERS, type DemoFixture } from "~/test/fixtures";
+import { withStrictFetch } from "~/test/workerd-fetch";
 
 import {
   AIRTABLE_BATCH_SIZE,
@@ -503,23 +504,10 @@ describe("workerd receiver enforcement", () => {
     ctx.close();
     ctx = installTestDb(CONFIG);
     await seedDemoFixture(ctx.db);
-    const calls: string[] = [];
-    function strictFetch(this: unknown, input: RequestInfo | URL): Promise<Response> {
-      if (this !== undefined && this !== globalThis) {
-        throw new TypeError("Illegal invocation: function called with incorrect `this` reference.");
-      }
-      calls.push(String(input));
-      return Promise.resolve(
-        new Response(JSON.stringify({ records: [] }), { status: 200 }),
-      );
-    }
-    vi.stubGlobal("fetch", strictFetch);
-    try {
+    await withStrictFetch(async (calls) => {
       const result = await runAirtableMirror({ sleep: noSleep });
       expect(calls.length).toBeGreaterThan(0);
       expect(JSON.stringify(result)).not.toContain("Illegal invocation");
-    } finally {
-      vi.unstubAllGlobals();
-    }
+    }, () => new Response(JSON.stringify({ records: [] }), { status: 200 }));
   });
 });

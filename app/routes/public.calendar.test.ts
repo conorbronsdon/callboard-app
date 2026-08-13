@@ -162,4 +162,27 @@ describe("public calendar feed", () => {
     expect(response.status).toBe(200);
     expect(icsValues(parseIcs(body), "SUMMARY")).toEqual([]);
   });
+
+  /*
+   * REGRESSION TEST for GitHub issue #199 (blindspot audit). Fixed in
+   * app/routes/public.calendar.ts: the loader used to set no `cache-control`
+   * at all — only `Content-Type` and `Content-Disposition` (asserted above).
+   * This URL is STABLE while its content is not: session times, rooms,
+   * titles, publication state, and speakers can all change after an attendee
+   * has downloaded or subscribed to this exact `.ics` URL. Every other
+   * live-D1 export route in this codebase — app/routes/
+   * admin.integrations.csv.ts, app/routes/admin.submissions.scores.csv.ts —
+   * already set `cache-control: no-store` for exactly this reason; this route
+   * now matches.
+   *
+   * `Content-Disposition: attachment` has no caching semantics of its own —
+   * it does not make a response any less cacheable. With no cache-control and
+   * no validator (no ETag/Last-Modified either), an intermediary or browser
+   * was otherwise free to apply HTTP heuristic freshness (RFC 9111 §4.2.2)
+   * and reuse a stale copy.
+   */
+  it("the mutable schedule export sets cache-control: no-store, matching the CSV export routes (#199)", async () => {
+    const { response } = await load();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
 });

@@ -227,4 +227,53 @@ describe("sendBulkComm", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(0);
     expect(await ctx.db.select().from(commLog)).toHaveLength(1);
   });
+
+  /*
+   * QUARANTINED — REAL BUG, reported to Conor, not fixed in this lane
+   * (blindspot audit). Filed as GitHub issue #198.
+   *
+   * `sendBulkComm` has no idempotency key, no dedup window, and no lock — two
+   * concurrent calls with the same recipients/subject/body each run to full
+   * completion independently. The UI's "Send emails" button
+   * (app/routes/admin.comms.tsx, `<button type="submit" name="intent"
+   * value="send">`) has no `disabled`/submitting-state guard, so a double
+   * click or a rapid double-Enter can fire two overlapping POSTs to the same
+   * action, which calls `sendBulkComm` twice. Both today complete, mailing
+   * every recipient TWICE and writing two comm-log rows each — an organizer
+   * sending a schedule-change notice to 40 speakers could double-email all of
+   * them from a single accidental double-click, with no error and no visible
+   * sign anything went wrong.
+   *
+   * This test does not assume a specific fix (a debounce window? a
+   * client-supplied idempotency key? disabling the button? all three?) — it
+   * only pins the observable, uncontroversial invariant that two concurrent
+   * identical bulk sends for the same event/recipients/subject/body within
+   * one request-handling window should not both actually dispatch mail. It
+   * currently fails: both calls succeed and every recipient receives two
+   * copies.
+   */
+  it.skip("QUARANTINED (real bug, not fixed here — see #198): two concurrent identical sends do not both dispatch mail (double-submit has no idempotency protection)", async () => {
+    const mailer = new MemoryMailer();
+    const args = {
+      eventId: fixture.eventId,
+      event: await eventContext(),
+      recipients: fixture.speakerIds.slice(0, 3),
+      subject: "Schedule change",
+      body: "Your session has moved rooms.",
+      audience: "all_speakers" as const,
+      origin: "https://callboard.test",
+      mailer,
+      db: ctx.db,
+    };
+
+    // Simulates the double-click: two requests racing through the same
+    // action, both reaching sendBulkComm before either has finished.
+    const [first, second] = await Promise.all([sendBulkComm(args), sendBulkComm(args)]);
+
+    expect(first.sent + second.sent, "total successful sends across both concurrent calls").toBe(3);
+    expect(mailer.sent, "each of the 3 recipients should receive exactly one copy").toHaveLength(3);
+    const emailCounts = new Map<string, number>();
+    for (const sent of mailer.sent) emailCounts.set(sent.to, (emailCounts.get(sent.to) ?? 0) + 1);
+    expect([...emailCounts.values()], "no recipient should appear more than once").toEqual([1, 1, 1]);
+  });
 });

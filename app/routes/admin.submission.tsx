@@ -1361,34 +1361,69 @@ export function SubmissionDetailView({
                     </ul>
                   ) : null}
                   {!round.canReview ? (
-                    <p className="rounded bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                      Your reviewer teams are not assigned to this submission in this round.
-                    </p>
+                    <div
+                      className="rounded bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                      data-testid={`review-round-${round.ordinal}-readonly-notice`}
+                    >
+                      <p>Your reviewer teams are not assigned to this submission in this round.</p>
+                      {/*
+                       * "Somewhere else" answered inline, not just implied by
+                       * disabling the fields — a disabled-but-populated
+                       * scorecard (issue: an organizer with a stale/prior
+                       * score, now off the assigned team, still sees the old
+                       * numbers sitting in what looks like a live form) reads
+                       * as broken, not as "go review it here instead."
+                       */}
+                      <p className="mt-1">
+                        Scores are entered in the reviewer workspace —{" "}
+                        <a href="/admin/view-as" className="underline">
+                          open as reviewer
+                        </a>
+                        .
+                      </p>
+                    </div>
                   ) : null}
                   {round.rubric.criteria.map((criterion) => {
                     const isSelect = isSelectCriterion(criterion);
                     const isText = isTextCriterion(criterion);
+                    const savedValue = round.review?.scores[criterion.key];
+                    /*
+                     * `max-w-md` on the row, not `1fr` across the card. A
+                     * criterion label and its 0–5 box do not need 640px
+                     * between them; at full width the scorecard read as a
+                     * table of contents with the answers filed at the far
+                     * margin, which is the pattern leader dots exist to
+                     * paper over.
+                     */
+                    const row = (
+                      <span>{criterion.label}{!isUnscoredCriterion(criterion) && criterion.weight !== 1 ? (
+                        <span className="ml-1 text-xs text-gray-500">×{criterion.weight}</span>
+                      ) : null}</span>
+                    );
+                    if (!round.canReview) {
+                      // Read-only means READS as read-only: plain text in a
+                      // <dl>, the same shape the submitted-reviews list below
+                      // already uses — never an input a click can't open.
+                      return (
+                        <div key={criterion.key} className="grid max-w-md grid-cols-[1fr_6rem] items-center gap-3 text-sm">
+                          {row}
+                          <span className="tabular-nums text-gray-700 dark:text-gray-300">
+                            {savedValue === undefined || savedValue === "" ? "—" : String(savedValue)}
+                          </span>
+                        </div>
+                      );
+                    }
                     return (
-                      /*
-                       * `max-w-md` on the row, not `1fr` across the card. A
-                       * criterion label and its 0–5 box do not need 640px
-                       * between them; at full width the scorecard read as a
-                       * table of contents with the answers filed at the far
-                       * margin, which is the pattern leader dots exist to
-                       * paper over.
-                       */
                       <label key={criterion.key} className="grid max-w-md grid-cols-[1fr_6rem] items-center gap-3 text-sm">
-                        <span>{criterion.label}{!isUnscoredCriterion(criterion) && criterion.weight !== 1 ? (
-                          <span className="ml-1 text-xs text-gray-500">×{criterion.weight}</span>
-                        ) : null}</span>
+                        {row}
                         {isText ? (
-                          <textarea name={`score-${criterion.key}`} rows={2} disabled={!round.canReview}
-                            defaultValue={typeof round.review?.scores[criterion.key] === "string" ? String(round.review.scores[criterion.key]) : ""}
+                          <textarea name={`score-${criterion.key}`} rows={2}
+                            defaultValue={typeof savedValue === "string" ? savedValue : ""}
                             aria-label={`${round.name}: ${criterion.label}`}
                             className="rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900" />
                         ) : isSelect ? (
-                          <select name={`score-${criterion.key}`} required disabled={!round.canReview}
-                            defaultValue={typeof round.review?.scores[criterion.key] === "string" ? String(round.review.scores[criterion.key]) : ""}
+                          <select name={`score-${criterion.key}`} required
+                            defaultValue={typeof savedValue === "string" ? savedValue : ""}
                             aria-label={`${round.name}: ${criterion.label}`}
                             className="rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900">
                             <option value="">Select…</option>
@@ -1398,19 +1433,30 @@ export function SubmissionDetailView({
                           </select>
                         ) : (
                           <input type="number" name={`score-${criterion.key}`} min={criterion.min}
-                            max={criterion.max} step="any" required disabled={!round.canReview}
-                            defaultValue={round.review?.scores[criterion.key]}
+                            max={criterion.max} step="any" required
+                            defaultValue={savedValue}
                             aria-label={`${round.name}: ${criterion.label}`}
                             className="rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900" />
                         )}
                       </label>
                     );
                   })}
-                  <label className="block text-sm">Private reviewer note
-                    <textarea name="comment" rows={2} disabled={!round.canReview} defaultValue={round.review?.comment}
-                      className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900" />
-                  </label>
-                  <button type="submit" disabled={!round.canReview} className={GHOST_BUTTON}>{round.review ? "Update score" : "Submit score"}</button>
+                  {round.canReview ? (
+                    <>
+                      <label className="block text-sm">Private reviewer note
+                        <textarea name="comment" rows={2} defaultValue={round.review?.comment}
+                          className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900" />
+                      </label>
+                      <button type="submit" className={GHOST_BUTTON}>{round.review ? "Update score" : "Submit score"}</button>
+                    </>
+                  ) : round.review?.comment ? (
+                    <div className="text-sm">
+                      <p className="text-gray-600 dark:text-gray-300">Private reviewer note</p>
+                      <p className="mt-1 whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                        {round.review.comment}
+                      </p>
+                    </div>
+                  ) : null}
                 </form>
                 {round.submittedReviews.length > 0 ? (
                   <section

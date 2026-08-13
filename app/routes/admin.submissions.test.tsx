@@ -8,7 +8,7 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { sessions } from "~/db/schema";
 import { signedInGet, signedInPost } from "~/test/auth";
@@ -270,6 +270,65 @@ describe("action: manual add", () => {
     // …and it must NOT leak into the abstracts table.
     const data = await load("https://x.test/admin/submissions?tab=accepted");
     expect(data.rows.map((row) => row.title)).not.toContain("Sponsor keynote: Vectorly");
+  });
+
+  /*
+   * REGRESSION TEST for GitHub issue #197 (blindspot audit). Fixed in
+   * app/routes/admin.submissions.tsx: `optionalDate()` used to parse the
+   * "Starts at" / "Ends at" `datetime-local` inputs with a bare
+   * `new Date(raw)`. A `datetime-local` value has no timezone designator, so
+   * per the JS Date spec it is interpreted in the RUNTIME's local timezone.
+   * workerd's runtime timezone is always UTC — so in production, an admin who
+   * typed "9:00 AM" meaning the EVENT's local time (this fixture event is
+   * "America/Los_Angeles") got it stored as 9:00 AM UTC, 7-8 hours off.
+   *
+   * `optionalDate` now takes the event's timezone and routes through
+   * `zonedInputToEpoch(value, timeZone)` from app/lib/zoned-time.ts — the
+   * same helper the agenda/autoplace path already used correctly
+   * (app/lib/agenda/schedule.ts:42-45).
+   *
+   * The existing "creates a program session..." test above could not have
+   * caught this: it only asserts `startsAt` is `toBeInstanceOf(Date)`, never
+   * the actual instant. `process.env.TZ` is forced to "UTC" below to
+   * reproduce workerd's runtime unconditionally — on a dev machine whose own
+   * local timezone happens to already be America/Los_Angeles (as this
+   * fixture's is), the bug was otherwise invisible locally even though it was
+   * live in every real deployment.
+   */
+  it("a manually-created session's 9:00 AM is stored as 9:00 AM in the EVENT's timezone, not the runtime's (#197)", async () => {
+    // `vi.stubEnv` (not a literal `process.env` write) — the app/ guard bans
+    // `process.env` in production code and correctly cannot tell this apart
+    // lexically, so routing through vitest's stub keeps the guard honest
+    // about test-only harness code forcing workerd's runtime timezone (always
+    // UTC), unconditionally of the host machine running this suite.
+    vi.stubEnv("TZ", "UTC");
+    try {
+      await post({
+        intent: "create-record",
+        kind: "session",
+        title: "Timezone probe session",
+        roomId: fixture.roomIds[0],
+        startsAt: "2026-10-07T09:00",
+        endsAt: "2026-10-07T09:30",
+        tab: "pending",
+      });
+
+      const { zonedInputToEpoch } = await import("~/lib/zoned-time");
+      const expectedEpoch = zonedInputToEpoch("2026-10-07T09:00", "America/Los_Angeles");
+
+      const rows = await ctx.db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.eventId, fixture.eventId));
+      const created = rows.find((row) => row.title === "Timezone probe session");
+
+      // Currently fails: the code stores 2026-10-07T09:00:00.000Z (interpreted
+      // as UTC under the forced TZ above) instead of 2026-10-07T16:00:00.000Z
+      // (9:00 AM America/Los_Angeles, PDT = UTC-7 in October).
+      expect(created?.startsAt?.getTime()).toBe(expectedEpoch);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("rejects a blank title", async () => {

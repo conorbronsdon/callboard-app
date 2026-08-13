@@ -88,6 +88,7 @@ import {
 } from "~/lib/review/pipeline";
 import { parseRubric } from "~/lib/review/scoring";
 import { emitWebhook } from "~/lib/webhooks/webhooks.server";
+import { zonedInputToEpoch } from "~/lib/zoned-time";
 import { abstractTextOf, detailUrl } from "./admin.submission";
 import type { Route } from "./+types/admin.submissions";
 
@@ -435,11 +436,17 @@ function boundedCount(value: FormDataEntryValue | null): number {
   return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), AI_TRIAGE_BULK_CAP) : 0;
 }
 
-function optionalDate(value: FormDataEntryValue | null): Date | null {
+/**
+ * The "Starts at" / "Ends at" `datetime-local` inputs mean the EVENT's local
+ * time, not the runtime's — a bare `new Date(raw)` would take workerd's
+ * always-UTC runtime timezone instead. Routes through the same
+ * `zonedInputToEpoch` the agenda/autoplace path uses (app/lib/agenda/schedule.ts).
+ */
+function optionalDate(value: FormDataEntryValue | null, timeZone: string): Date | null {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  const epoch = zonedInputToEpoch(raw, timeZone);
+  return epoch === null ? null : new Date(epoch);
 }
 
 function optionalInt(value: FormDataEntryValue | null): number | null {
@@ -693,8 +700,8 @@ export async function action({ request }: Route.ActionArgs) {
       trackId: optionalId(formData.get("trackId")),
       formatId: optionalId(formData.get("formatId")),
       roomId: isAbstract ? null : optionalId(formData.get("roomId")),
-      startsAt: optionalDate(formData.get("startsAt")),
-      endsAt: optionalDate(formData.get("endsAt")),
+      startsAt: optionalDate(formData.get("startsAt"), event.timezone),
+      endsAt: optionalDate(formData.get("endsAt"), event.timezone),
       capacity: optionalInt(formData.get("capacity")),
       isPublic: false,
     }).returning({ id: sessions.id });

@@ -196,6 +196,10 @@ test("the Integrations page ships the linked CSV pair and says what the API cann
   expect(speakers.status()).toBe(200);
   expect(sessions.status()).toBe(200);
   expect(speakers.headers()["content-disposition"]).toContain("speakers.csv");
+  // Live D1 export, already correctly set — armor added during the
+  // blindspot audit, pinning behavior that had never been asserted.
+  expect(speakers.headers()["cache-control"]).toBe("no-store");
+  expect(sessions.headers()["cache-control"]).toBe("no-store");
 
   const speakerCsv = await speakers.text();
   const sessionCsv = await sessions.text();

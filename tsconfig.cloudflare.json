@@ -9,8 +9,15 @@
     "worker-configuration.d.ts"
   ],
   // Tests and their harness are Node, not workerd (app/test/ imports node:sqlite
-  // and node:fs) — they compile under tsconfig.test.json instead.
-  "exclude": ["app/**/*.test.ts", "app/**/*.test.tsx", "app/test/**"],
+  // and node:fs) — they compile under tsconfig.test.json instead. `workers/`
+  // gained its first test files (workers/mcp.test.ts) during the blindspot
+  // audit — same reasoning, same exclusion.
+  "exclude": [
+    "app/**/*.test.ts",
+    "app/**/*.test.tsx",
+    "app/test/**",
+    "workers/**/*.test.ts"
+  ],
   "compilerOptions": {
     "composite": true,
     "strict": true,

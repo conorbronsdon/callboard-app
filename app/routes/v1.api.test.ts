@@ -933,3 +933,65 @@ describe("openapi.json", () => {
     expect(schemes.ApiKeyAuth.name).toBe("x-access-token");
   });
 });
+
+/* ------------------------------------------------------------- cache headers */
+
+/*
+ * REGRESSION TEST for GitHub issue #201 (blindspot audit). Fixed at the
+ * shared layer, `apiJson()` (app/lib/api/envelope.ts) — the ONE response
+ * builder every `/v1` route uses (GET, POST, PUT, DELETE and errors alike) —
+ * which used to set only `content-type`, no `cache-control`. These routes
+ * return private, mutable, per-key-scoped D1 data (events, sessions,
+ * speakers, metadata), authenticated primarily via the CUSTOM
+ * `x-access-token` header (app/lib/api/auth.server.ts:18) rather than
+ * standard `Authorization` — so a generic shared cache did not get RFC
+ * 9111's built-in "don't store a response to an Authorization-bearing
+ * request" protection for the primary auth path; only the `Authorization:
+ * Bearer` alias would have gotten that for free.
+ *
+ * Cloudflare's Worker-level HTTP cache is disabled in this repo today
+ * (wrangler.jsonc declares no cache rules, and nothing in app/ calls the
+ * Cache API — confirmed separately during this audit), so the practical
+ * blast radius was limited to intermediary proxies applying HTTP heuristic
+ * freshness. But nothing was stopping a future edge-cache rule, a
+ * misconfigured reverse proxy in front of a self-hosted deployment, or a
+ * client-side HTTP cache from serving one key's cached response to a request
+ * that presents a DIFFERENT (including revoked) key hitting the same URL.
+ *
+ * `apiJson()` now defaults `cache-control` to `private, no-store` (matching
+ * the house convention at app/routes/admin.files.download.ts) for every
+ * caller; a route with a legitimate reason to differ can still override it
+ * via its own `headers` argument — v1.openapi.ts does exactly that to stay
+ * `public, max-age=300`, since it's unauthenticated and safe to cache.
+ */
+describe("cache headers on authenticated /v1 GET routes", () => {
+  it("every authenticated GET response sets cache-control: private, no-store (#201)", async () => {
+    const cases: [string, Handler, Request, Record<string, string>][] = [
+      ["GET /v1/events", eventsLoader as Handler, request("GET", "/v1/events", { key: readKey }), {}],
+      [
+        "GET /v1/event/:id/sessions/:sessionId",
+        sessionLoader as Handler,
+        request("GET", eventPath(`/sessions/${fixture.abstractIds[0]}`), { key: readKey }),
+        { eventId: fixture.eventId, sessionId: fixture.abstractIds[0] },
+      ],
+      [
+        "GET /v1/event/:id/speakers/:contactId",
+        speakerLoader as Handler,
+        request("GET", eventPath(`/speakers/${fixture.speakerIds[0]}`), { key: readKey }),
+        { eventId: fixture.eventId, contactId: fixture.speakerIds[0] },
+      ],
+      [
+        "GET /v1/event/:id/tracks",
+        metadataLoader as Handler,
+        request("GET", eventPath("/tracks"), { key: readKey }),
+        { eventId: fixture.eventId },
+      ],
+    ];
+
+    for (const [label, handler, req, params] of cases) {
+      const response = await call(handler, req, params);
+      expect(response.status, label).toBe(200);
+      expect(response.headers.get("cache-control"), label).toBe("private, no-store");
+    }
+  });
+});

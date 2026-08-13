@@ -89,7 +89,7 @@ or command that shows it, so it can be rechecked rather than taken on trust.
 Volatile counts for the commit this file ships in, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **20** migrations;
 `grep -c 'sqliteTable(' app/db/schema.ts` → **39** tables;
 `grep -oE 'insert\("[a-z_]+"' scripts/seed.mjs | sort -u | wc -l` → **29** seeded
-tables; `npx vitest list --run | grep -c ' > '` → **2836** tests.
+tables; `npx vitest list --run | grep -c ' > '` → **2897** tests.
 
 **AI triage is advisory only and never decides.** Workers AI (the `"ai"` binding
 in `wrangler.jsonc`, model `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) produces a

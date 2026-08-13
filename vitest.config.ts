@@ -22,7 +22,7 @@ export default defineConfig({
   test: {
     environment: "node",
     /*
-     * `scripts/` is included on purpose, and its extension is `.mjs`.
+     * `scripts/` and `workers/` are included on purpose, alongside `app/`.
      *
      * The previous pattern was `app/**` only, which silently excluded
      * `scripts/demo-lifecycle.test.mjs` and `scripts/run-e2e.test.mjs` — both
@@ -35,13 +35,25 @@ export default defineConfig({
      * coverage, and a suite that silently drops whole files reports a test
      * count that overstates what was verified.
      *
-     * A glob that names both roots means adding a test outside `app/` cannot
+     * `workers/` is the actual Worker entrypoint code (workers/app.ts,
+     * workers/mcp.ts) and had ZERO test files before the blindspot audit —
+     * cron/registry glue and the standalone MCP Worker's config validation and
+     * isolate-reuse invariant were entirely unexercised. `workers/app.ts`
+     * itself still can't be imported directly here (it calls
+     * `createRequestHandler` against `virtual:react-router/server-build` at
+     * module load, a Vite-only virtual module this plain-Node vitest config
+     * deliberately does not resolve — see the file header above); its testable
+     * logic is covered indirectly through app/lib/jobs/registry.server.test.ts
+     * instead. `workers/mcp.ts` has no such import and is tested directly.
+     *
+     * A glob that names every root means adding a test outside `app/` cannot
      * silently do nothing again.
      */
     include: [
       "app/**/*.test.ts",
       "app/**/*.test.tsx",
       "scripts/**/*.test.mjs",
+      "workers/**/*.test.ts",
     ],
   },
 });

@@ -987,6 +987,25 @@ function ParticipantStep({ loaderData, actionData }: StepProps) {
       <h2 className="mb-1 text-xl font-semibold">{view.form.sectionTitle}</h2>
       <RichText body={view.form.sectionBody} />
 
+      {/*
+       * Same confirmation as the Submission step (line ~776). Without it the
+       * "Save draft" click here has zero visible effect — the POST succeeds
+       * and the draft persists, but a reviewer watching the screen sees no
+       * change at all and reasonably reads the button as broken/unclickable.
+       * The other three intents on this step (Next, Add participant, Remove
+       * participant) all produce a visible change; this one has to too.
+       */}
+      {actionData?.savedDraft ? (
+        <p
+          data-testid="draft-saved"
+          className="my-5 rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200"
+        >
+          Draft saved. This page&rsquo;s link brings you straight back to it.
+        </p>
+      ) : (
+        <div className="mb-5" />
+      )}
+
       <div
         data-testid="participant-requirements"
         className="my-5 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-800"

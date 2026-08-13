@@ -154,6 +154,64 @@ test("navigating collapses every group except the one the new page belongs to", 
   await expect(people).toHaveAttribute("open", "");
 });
 
+/*
+ * #192's fix hooks a `useLocation` effect (app/components/shell.tsx) that
+ * re-syncs which nav group is open on every `location.pathname` change. Every
+ * existing regression test above triggers that change by clicking an in-app
+ * link. Nothing in the suite triggers it via the BROWSER's own back/forward
+ * buttons — a `popstate` navigation, which React Router's `useLocation` also
+ * observes, but through a different code path (the browser chrome, not a
+ * click handler) than every test above exercises. This is the same
+ * "interact, then navigate — but the human used a different navigation
+ * trigger" gap that let #192 itself through.
+ *
+ * This deliberately never clicks a SECOND group's summary: doing that would
+ * let the native `name="admin-nav"` exclusivity (zero JS) close `content` on
+ * its own, which would pass even if the location-sync effect were entirely
+ * broken. The only two interactions with `content` here are opening it once
+ * and reading its attribute — every close has to come from the effect. "Comms"
+ * is used as the destination because it's the one top-level nav LINK that
+ * lives outside every `<details>` (admin-nav.ts), so clicking it cannot touch
+ * any other disclosure either. `content`'s active-group value is `false` on
+ * both /admin and /admin/comms — the exact "value reads the same before and
+ * after" case the shipped comment on the effect describes, which is what
+ * makes this a real reproduction of the masking case rather than a
+ * coincidence of some OTHER group becoming active.
+ */
+test("browser Back re-closes a manually-opened, still-inactive group the same way an in-app link nav does", async ({
+  page,
+}) => {
+  await enterOrganizerWorkspace(page);
+
+  const content = page.getByTestId("admin-nav-group-content");
+
+  await content.locator("summary").click();
+  await expect(content).toHaveAttribute("open", "");
+
+  // Link-driven nav to an unrelated top-level page. content's active-group
+  // value is false both on /admin and /admin/comms — only the effect closes it.
+  await adminNav(page).getByRole("link", { name: "Comms", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/comms$/);
+  await expect(content).not.toHaveAttribute("open", "");
+
+  // Re-open it manually again, now that we're on /admin/comms.
+  await content.locator("summary").click();
+  await expect(content).toHaveAttribute("open", "");
+
+  // MUST FIRE: browser Back to /admin. content's active-group value is false
+  // on /admin too — same masking pair, but via popstate instead of a click.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(content).not.toHaveAttribute("open", "");
+
+  // Re-open once more, then prove Forward closes it too — not just Back.
+  await content.locator("summary").click();
+  await expect(content).toHaveAttribute("open", "");
+  await page.goForward();
+  await expect(page).toHaveURL(/\/admin\/comms$/);
+  await expect(content).not.toHaveAttribute("open", "");
+});
+
 test("native admin disclosures remain operable with JavaScript disabled", async ({
   browser,
   baseURL,

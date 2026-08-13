@@ -2,11 +2,21 @@
   "extends": "./tsconfig.json",
   // Composite projects must list every file they pull in, so this mirrors the
   // cloudflare project's `include` and adds the test files on top.
+  //
+  // `workers/mcp.ts` and `workers/mcp.test.ts` (not `workers/**/*`): the test
+  // added during the blindspot audit imports only `workers/mcp.ts` directly,
+  // which has no Vite-only dependency and compiles cleanly under Node types.
+  // `workers/app.ts` is deliberately NOT listed here — it calls
+  // `createRequestHandler` against the Vite-only virtual module at import
+  // time and stays exclusively in tsconfig.cloudflare.json's project, same as
+  // before this audit.
   "include": [
     ".react-router/types/**/*",
     "app/**/*",
     "worker-configuration.d.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "workers/mcp.ts",
+    "workers/mcp.test.ts"
   ],
   "compilerOptions": {
     "composite": true,

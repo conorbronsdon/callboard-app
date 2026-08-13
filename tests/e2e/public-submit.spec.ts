@@ -190,6 +190,24 @@ test("golden path: conditional CFP → submit → speaker portal, on a 375px vie
     "true",
   );
   await expectNoHorizontalOverflow(page);
+
+  // Bug regression (demo review): "Save draft" on the Participant step read as
+  // dead — the POST always succeeded and the draft always persisted, but the
+  // step rendered no confirmation, so a click looked identical to nothing
+  // happening at all. Prove both halves: the visible confirmation appears,
+  // AND a full reload actually restores what got typed (not just a banner
+  // that lied).
+  await page.getByTestId("save-draft").click();
+  await expect(page.getByTestId("draft-saved")).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("participant-row-1")).toBeVisible();
+  await expect(page.locator('[name="p1.firstName"]')).toHaveValue("Sam");
+  await expect(page.locator('[name="p1.lastName"]')).toHaveValue("Second");
+  await expect(page.getByTestId("role-indicator-speaker")).toHaveAttribute(
+    "data-satisfied",
+    "true",
+  );
+
   await page.getByTestId("wizard-next").click();
 
   /* ⑤ Review — summary + edit-in-place links */

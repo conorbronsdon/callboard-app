@@ -148,6 +148,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
       "Content-Disposition": `attachment; filename="${filenameSlug}-schedule.ics"`,
+      // Derived-mutable, like the CSV export routes (admin.integrations.csv.ts,
+      // admin.submissions.scores.csv.ts): the URL is stable but session times,
+      // rooms, titles, publication state and speakers can all change after an
+      // attendee has downloaded or subscribed to this exact .ics URL.
+      "cache-control": "no-store",
     },
   });
 }

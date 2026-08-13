@@ -9,9 +9,11 @@
   "scripts": {
     "dev": "react-router dev",
     "build": "react-router build",
-    "check": "npm run typecheck && npm run guards && npm run actions:check && npm run release:gate:self-test && npm run test",
+    "check": "npm run typecheck && npm run guards && npm run actions:check && npm run strip-list:check && npm run docs:verify && npm run release:gate:self-test && npm run test",
     "guards": "node scripts/guards.mjs",
     "actions:check": "node scripts/check-action-pins.mjs",
+    "strip-list:check": "node scripts/check-strip-list.mjs",
+    "docs:verify": "node scripts/docs-verify.mjs",
     "typecheck": "wrangler types && react-router typegen && tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",

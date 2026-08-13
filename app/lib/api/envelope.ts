@@ -89,10 +89,25 @@ export function envelope<T>(results: T[], totalResults: number, paging: Paging):
   };
 }
 
+/**
+ * Every `/v1` route builds its response through this one function — GET, POST,
+ * PUT, DELETE and errors alike — so the default `cache-control` here is the
+ * one place that governs the whole surface (#201: an authenticated GET response
+ * with no cache-control leaves a shared cache free to apply HTTP heuristic
+ * freshness, RFC 9111 §4.2.2, and reuse one key's response for another).
+ * `private, no-store` matches the house convention for authenticated content
+ * elsewhere (app/routes/admin.files.download.ts). A route with a legitimate
+ * reason to differ — v1.openapi.ts is unauthenticated and cacheable — passes
+ * its own `cache-control` in `headers`, which wins because it spreads last.
+ */
 export function apiJson(body: unknown, status = 200, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", ...headers },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "private, no-store",
+      ...headers,
+    },
   });
 }
 
