@@ -65,7 +65,7 @@ Suggested walkthrough:
 | CFP builder | Six-step organizer flow, reusable field registry, conditional logic, cross-field character limits, category/track routing, participant bounds, close dates, limits, and cloning |
 | Public submission | Five-step mobile-first SSR flow, drafts, email-verified account entry, abstract/video modes, validation, confirmation email, and portal redirect |
 | Submission decisions | Seven status views, staged accept/decline queues, bulk commit, filtering, drill-in, and manual additions |
-| Review operations | Standalone assigned-only reviewer workspace, organizer “view as reviewer,” two-round weighted scoring, reviewer aggregates and completion progress, reviewer provisioning by email with an additive capability flag, team management, round/rubric setup (add/remove criterion rows, numeric or dropdown types, lock on first submitted score), per-round blinding, reviewer conflict-of-interest recusal, reviewer reminders, and both batch assignment and direct per-reviewer assignment |
+| Review operations | Standalone assigned-only reviewer workspace, organizer “view as reviewer,” multi-round weighted scoring, reviewer aggregates and completion progress, reviewer provisioning by email with an additive capability flag, team management, round/rubric setup (add/remove criterion rows, numeric or dropdown types, lock on first submitted score), per-round blinding, reviewer conflict-of-interest recusal, reviewer reminders, and both batch assignment and direct per-reviewer assignment |
 | Score reporting | Aggregate-score sorting in the submissions list, plus a reviewer score CSV export at `/admin/submissions/scores.csv` carrying per-round aggregates and one column per rubric criterion, including dropdown-answer distributions |
 | AI first-pass triage | Advisory Workers AI triage on an abstract's detail page: a score, a queue recommendation, and a short rationale carrying the model label. It never writes a review, never changes a submission's status, and degrades to a visible "unavailable in this deployment" when no `AI` binding is present |
 | Speaker CRM | Organization-level contact directory spanning every event, with contact profiles, notes, tags, travel notes, CSV import (preview then commit), duplicate detection and merge, add-to-event, bulk email to a filtered selection, rollups for total contacts/events/returning contacts/top companies, savable named filter segments, and a sourcing pipeline (a kanban board over five fixed stages; each card moves either by dragging or by picking a stage and submitting) with a move-audit trail |
@@ -384,9 +384,10 @@ data and uploads files, and a local process cannot prove that a remote Worker
 has disabled real email. Run it only against a disposable local server.
 
 `npm run release:verify` runs the production build, unit/guard/type checks,
-migration-drift check, Playwright, a high/critical lockfile dependency audit,
-and a guard that rejects mutable GitHub Action references. The same gate is
-committed as a GitHub Actions workflow in `.github/workflows/check.yml`.
+migration-drift check, Playwright, and a guard that rejects mutable GitHub
+Action references. The committed CI workflow (`.github/workflows/check.yml`)
+runs the same gate plus a high/critical lockfile dependency audit in a
+separate job.
 Generated migrations must be committed.
 
 Both deployed smoke profiles call `/ready`. The probe returns 503 unless
