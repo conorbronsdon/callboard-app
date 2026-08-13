@@ -69,6 +69,52 @@ describe("parseRubric", () => {
       { key: "fit", label: "Fit", min: 1, max: 5, weight: 1 },
     ]);
   });
+
+  it("must fire: keeps text criteria with zeroed numeric fields", () => {
+    expect(
+      parseRubric({
+        criteria: [
+          {
+            key: "reviewer_note",
+            label: "Reviewer note",
+            min: "not a number",
+            max: -50,
+            weight: 999,
+            type: "text",
+            options: "ignored",
+          },
+        ],
+      }).criteria,
+    ).toEqual([
+      {
+        key: "reviewer_note",
+        label: "Reviewer note",
+        min: 0,
+        max: 0,
+        weight: 0,
+        type: "text",
+      },
+    ]);
+  });
+
+  it("must NOT fire: a persisted text-only rubric does not fall back", () => {
+    expect(
+      parseRubric({
+        criteria: [{ key: "reviewer_note", label: "Reviewer note", type: "text" }],
+      }),
+    ).toEqual({
+      criteria: [
+        {
+          key: "reviewer_note",
+          label: "Reviewer note",
+          min: 0,
+          max: 0,
+          weight: 0,
+          type: "text",
+        },
+      ],
+    });
+  });
 });
 
 describe("scoreRubric", () => {
@@ -140,6 +186,51 @@ describe("scoreRubric", () => {
     expect(scoreRubric(rubric, { recommendation: "Maybe" })).toEqual({
       ok: false,
       error: "Recommendation must be one of: Accept, Reject.",
+    });
+  });
+
+  it("must fire: stores free text outside the numeric weighted total", () => {
+    const rubric = {
+      criteria: [
+        { key: "fit", label: "Fit", min: 1, max: 5, weight: 2 },
+        {
+          key: "reviewer_note",
+          label: "Reviewer note",
+          min: 0,
+          max: 0,
+          weight: 0,
+          type: "text" as const,
+        },
+      ],
+    };
+
+    expect(scoreRubric(rubric, { fit: 4, reviewer_note: "Strong evidence, clear scope." })).toEqual({
+      ok: true,
+      scores: { fit: 4, reviewer_note: "Strong evidence, clear scope." },
+      totalScore: 8,
+      maxScore: 10,
+    });
+  });
+
+  it("must NOT fire: an empty free-text answer remains valid", () => {
+    const rubric = {
+      criteria: [
+        {
+          key: "reviewer_note",
+          label: "Reviewer note",
+          min: 0,
+          max: 0,
+          weight: 0,
+          type: "text" as const,
+        },
+      ],
+    };
+
+    expect(scoreRubric(rubric, {})).toEqual({
+      ok: true,
+      scores: { reviewer_note: "" },
+      totalScore: 0,
+      maxScore: 0,
     });
   });
 

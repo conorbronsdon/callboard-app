@@ -289,6 +289,41 @@ describe("review score aggregates", () => {
     expect(choiceSummaries(WEIGHTED_RUBRIC, [])).toEqual([]);
     expect(reviewAverage(0, selectOnly)).toBeNull();
   });
+
+  it("must fire: free text cannot move totals or become a choice summary", () => {
+    const textCriterion = {
+      key: "reviewer_note",
+      label: "Reviewer note",
+      min: -50,
+      max: 100,
+      weight: 7,
+      type: "text" as const,
+    };
+    const withText: Rubric = {
+      criteria: [...WEIGHTED_RUBRIC.criteria, textCriterion],
+    };
+    const selectOnly: Rubric = {
+      criteria: [
+        {
+          key: "recommendation",
+          label: "Recommendation",
+          min: 0,
+          max: 0,
+          weight: 0,
+          type: "select",
+          options: ["Accept", "Reject"],
+        },
+      ],
+    };
+    const selectAndText: Rubric = {
+      criteria: [...selectOnly.criteria, textCriterion],
+    };
+
+    expect(rubricWeightTotal(withText)).toBe(rubricWeightTotal(WEIGHTED_RUBRIC));
+    expect(rubricMaxTotal(withText)).toBe(rubricMaxTotal(WEIGHTED_RUBRIC));
+    expect(rubricSpanTotal(withText)).toBe(rubricSpanTotal(WEIGHTED_RUBRIC));
+    expect(choiceSummaries(selectAndText, [])).toEqual(choiceSummaries(selectOnly, []));
+  });
 });
 
 /*

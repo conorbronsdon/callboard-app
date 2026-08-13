@@ -20,6 +20,8 @@ import { requireReviewerActor, requireReviewerEvent } from "~/lib/review/access.
 import {
   isRoundBlind,
   isSelectCriterion,
+  isTextCriterion,
+  isUnscoredCriterion,
   parseRubric,
   scoreRubric,
 } from "~/lib/review/scoring";
@@ -312,7 +314,7 @@ function Scorecard({
 }: {
   assignment: Awaited<ReturnType<typeof loader>>["assignments"][number];
 }) {
-  // Select criteria contribute 0 by design.
+  // Unscored criteria contribute 0 by design.
   const maxScore = assignment.rubric.criteria.reduce(
     (sum, criterion) => sum + criterion.max * criterion.weight,
     0,
@@ -369,16 +371,26 @@ function Scorecard({
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {assignment.rubric.criteria.map((criterion) => {
             const isSelect = isSelectCriterion(criterion);
+            const isText = isTextCriterion(criterion);
             return (
               <label key={criterion.key} className="grid gap-1 text-sm">
                 <span>
                   {criterion.label}
-                  {!isSelect && criterion.weight !== 1 ? <span className="ml-1 text-xs text-gray-500">×{criterion.weight}</span> : null}
+                  {!isUnscoredCriterion(criterion) && criterion.weight !== 1 ? <span className="ml-1 text-xs text-gray-500">×{criterion.weight}</span> : null}
                 </span>
-                {isSelect ? (
+                {isText ? (
+                  <textarea
+                    className={INPUT}
+                    name={`score-${criterion.key}`}
+                    rows={2}
+                    aria-label={criterion.label}
+                    defaultValue={typeof assignment.review?.scores[criterion.key] === "string" ? String(assignment.review.scores[criterion.key]) : ""}
+                  />
+                ) : isSelect ? (
                   <select
                     className={INPUT}
                     name={`score-${criterion.key}`}
+                    aria-label={criterion.label}
                     required
                     defaultValue={typeof assignment.review?.scores[criterion.key] === "string" ? String(assignment.review.scores[criterion.key]) : ""}
                     data-testid="reviewer-choice"
@@ -393,6 +405,7 @@ function Scorecard({
                     className={INPUT}
                     type="number"
                     name={`score-${criterion.key}`}
+                    aria-label={criterion.label}
                     min={criterion.min}
                     max={criterion.max}
                     step="any"

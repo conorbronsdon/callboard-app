@@ -913,6 +913,12 @@ export const aiTriage = sqliteTable(
       onDelete: "set null",
     }),
     dismissedAt: integer("dismissed_at", { mode: "timestamp_ms" }),
+    organizerScore: integer("organizer_score"),
+    organizerNote: text("organizer_note"),
+    organizerScoredById: text("organizer_scored_by_id").references(() => people.id, {
+      onDelete: "set null",
+    }),
+    organizerScoredAt: integer("organizer_scored_at", { mode: "timestamp_ms" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

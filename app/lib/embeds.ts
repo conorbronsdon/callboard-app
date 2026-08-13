@@ -48,14 +48,38 @@ export const EMBED_WIDGETS = [
 
 export type EmbedWidgetId = (typeof EMBED_WIDGETS)[number]["id"];
 export type EmbedTheme = "light" | "dark" | "auto";
-export type EmbedFormat = "iframe" | "html" | "ical";
+export type EmbedFormat = "iframe" | "html" | "ical" | "json" | "xml";
 export type EmbedDensity = "full" | "compact";
 
 export const EMBED_FORMATS = [
   { id: "iframe", label: "Iframe" },
   { id: "html", label: "Link (HTML)" },
   { id: "ical", label: "Calendar feed (iCal)" },
+  { id: "json", label: "JSON" },
+  { id: "xml", label: "XML" },
 ] as const satisfies readonly { id: EmbedFormat; label: string }[];
+
+export const EMBED_FIELD_CATALOGUE: Record<
+  EmbedWidgetId,
+  readonly { id: string; label: string }[]
+> = {
+  schedule: [
+    { id: "room", label: "Room" },
+    { id: "track", label: "Track" },
+  ],
+  agenda: [
+    { id: "room", label: "Room" },
+    { id: "track", label: "Track" },
+  ],
+  speakers: [
+    { id: "title", label: "Title" },
+    { id: "company", label: "Company" },
+  ],
+  gallery: [
+    { id: "title", label: "Title" },
+    { id: "company", label: "Company" },
+  ],
+};
 
 export const ACCENT_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -68,6 +92,8 @@ export interface SavedEmbed {
   format: EmbedFormat;
   density: EmbedDensity;
   accent: string | null;
+  customCss: string | null;
+  hiddenFields: string[];
   enabled: boolean;
   createdAt: number;
 }
@@ -77,7 +103,13 @@ export function parseTheme(value: string | null): EmbedTheme {
 }
 
 export function isEmbedFormat(value: string): value is EmbedFormat {
-  return value === "iframe" || value === "html" || value === "ical";
+  return (
+    value === "iframe" ||
+    value === "html" ||
+    value === "ical" ||
+    value === "json" ||
+    value === "xml"
+  );
 }
 
 export function isEmbedDensity(value: string): value is EmbedDensity {
@@ -96,6 +128,45 @@ export function parseDensity(value: string | null | undefined): EmbedDensity {
 export function parseAccent(value: string | null | undefined): string | null {
   const normalised = value?.trim().toLowerCase() ?? "";
   return ACCENT_PATTERN.test(normalised) ? normalised : null;
+}
+
+export function parseCustomCss(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+  const sanitised = trimmed
+    .slice(0, 4_000)
+    .replace(/<\/style\s*>?/gi, "")
+    .replace(/<script/gi, "");
+  return sanitised || null;
+}
+
+export function parseHiddenFields(
+  widget: EmbedWidgetId,
+  raw: readonly string[],
+): string[] {
+  const allowed = new Set(EMBED_FIELD_CATALOGUE[widget].map((field) => field.id));
+  return [...new Set(raw.filter((field) => allowed.has(field)))];
+}
+
+function escapeXmlText(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+export function buildEmbedXml(
+  rootTag: string,
+  itemTag: string,
+  items: readonly Record<string, string | number | boolean | null>[],
+): string {
+  const body = items
+    .map((item) => {
+      const fields = Object.entries(item)
+        .filter((entry): entry is [string, string | number | boolean] => entry[1] !== null)
+        .map(([key, value]) => `<${key}>${escapeXmlText(String(value))}</${key}>`)
+        .join("");
+      return `<${itemTag}>${fields}</${itemTag}>`;
+    })
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><${rootTag}>${body}</${rootTag}>`;
 }
 
 export interface EmbedTrackRef {
@@ -158,6 +229,8 @@ export function buildEmbedUrl(options: {
   track?: string | null;
   accent?: string | null;
   density?: EmbedDensity;
+  format?: EmbedFormat;
+  hiddenFields?: readonly string[];
   embedId?: string | null;
 }): string {
   const widget = getEmbedWidget(options.widget);
@@ -172,6 +245,12 @@ export function buildEmbedUrl(options: {
     const accent = parseAccent(options.accent);
     if (accent) params.set("accent", accent);
     if (options.density === "compact") params.set("density", "compact");
+    if (options.format === "json" || options.format === "xml") {
+      params.set("format", options.format);
+    }
+    for (const field of parseHiddenFields(options.widget, options.hiddenFields ?? [])) {
+      params.append("hide", field);
+    }
   }
 
   const query = params.toString();
@@ -228,6 +307,14 @@ export function buildSnippet(options: {
     const text = escapeHtmlText(`Subscribe to ${options.eventName} (iCal)`);
     return `<div class="callboard-embed"><a href="${href}" target="_blank" rel="noopener">${text}</a></div>`;
   }
+  if (options.format === "json" || options.format === "xml") {
+    const href = escapeHtmlAttribute(options.url);
+    const format = options.format.toUpperCase();
+    const text = escapeHtmlText(
+      `Fetch ${options.eventName} — ${options.widgetLabel} as ${format}`,
+    );
+    return `<div class="callboard-embed"><a href="${href}" target="_blank" rel="noopener">${text}</a></div>`;
+  }
   return buildIframeSnippet(options);
 }
 
@@ -239,10 +326,15 @@ function settingsValue(source: unknown): unknown {
   return isRecord(source) && "settings" in source ? source.settings : source;
 }
 
-type StoredSavedEmbed = Omit<SavedEmbed, "format" | "density" | "accent"> & {
+type StoredSavedEmbed = Omit<
+  SavedEmbed,
+  "format" | "density" | "accent" | "customCss" | "hiddenFields"
+> & {
   format?: unknown;
   density?: unknown;
   accent?: unknown;
+  customCss?: unknown;
+  hiddenFields?: unknown;
 };
 
 function isSavedEmbed(value: unknown): value is StoredSavedEmbed {
@@ -278,6 +370,13 @@ export function readSavedEmbeds(source: unknown): SavedEmbed[] {
     format: parseFormat(typeof embed.format === "string" ? embed.format : null),
     density: parseDensity(typeof embed.density === "string" ? embed.density : null),
     accent: parseAccent(typeof embed.accent === "string" ? embed.accent : null),
+    customCss: parseCustomCss(typeof embed.customCss === "string" ? embed.customCss : null),
+    hiddenFields: parseHiddenFields(
+      embed.widget,
+      Array.isArray(embed.hiddenFields)
+        ? embed.hiddenFields.filter((field): field is string => typeof field === "string")
+        : [],
+    ),
   }));
 }
 
@@ -292,8 +391,13 @@ export function upsertSavedEmbed(
   const existing = readSavedEmbeds(settings);
   const index = existing.findIndex((item) => item.id === embed.id);
   const embeds = [...existing];
-  if (index === -1) embeds.push(embed);
-  else embeds[index] = embed;
+  const normalised = {
+    ...embed,
+    customCss: parseCustomCss(embed.customCss),
+    hiddenFields: parseHiddenFields(embed.widget, embed.hiddenFields),
+  };
+  if (index === -1) embeds.push(normalised);
+  else embeds[index] = normalised;
   return writeEmbeds(settings, embeds);
 }
 

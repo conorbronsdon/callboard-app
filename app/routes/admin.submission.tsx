@@ -98,6 +98,8 @@ import {
   currentRoundCriteria,
   dismissTriage,
   loadTriage,
+  parseOrganizerScore,
+  saveOrganizerScore,
   triageBinding,
   triageSubmission,
 } from "~/lib/review/ai-triage.server";
@@ -114,6 +116,8 @@ import { socialHref } from "~/lib/social-href";
 import {
   DEFAULT_RUBRIC,
   isSelectCriterion,
+  isTextCriterion,
+  isUnscoredCriterion,
   parseRubric,
   scoreRubric,
   type Rubric,
@@ -731,6 +735,34 @@ export async function action({ request, params }: Route.ActionArgs) {
     return redirect(detailUrl(params.id, tab, trackFilter));
   }
 
+  if (intent === "save-organizer-score") {
+    const target = await db.query.sessions.findFirst({
+      where: and(
+        eq(sessions.id, params.id),
+        eq(sessions.eventId, event.id),
+        eq(sessions.isAbstract, true),
+        isNull(sessions.deletedAt),
+      ),
+    });
+    if (!target) return { ok: false as const, error: "That abstract no longer exists." };
+
+    const rawScore = formData.get("organizerScore");
+    const score = parseOrganizerScore(typeof rawScore === "string" ? rawScore : null);
+    if (score === null) {
+      return { ok: false as const, error: "Your score must be a number from 1 to 5." };
+    }
+    const rawNote = formData.get("organizerNote");
+    const result = await saveOrganizerScore(db, {
+      eventId: event.id,
+      sessionId: params.id,
+      scoredById: admin.id,
+      score,
+      note: typeof rawNote === "string" ? rawNote : null,
+    });
+    if (!result.ok) return result;
+    return redirect(detailUrl(params.id, tab, trackFilter));
+  }
+
   if (intent === "save-review") {
     const target = await db.query.sessions.findFirst({
       where: and(
@@ -1335,6 +1367,7 @@ export function SubmissionDetailView({
                   ) : null}
                   {round.rubric.criteria.map((criterion) => {
                     const isSelect = isSelectCriterion(criterion);
+                    const isText = isTextCriterion(criterion);
                     return (
                       /*
                        * `max-w-md` on the row, not `1fr` across the card. A
@@ -1345,10 +1378,15 @@ export function SubmissionDetailView({
                        * paper over.
                        */
                       <label key={criterion.key} className="grid max-w-md grid-cols-[1fr_6rem] items-center gap-3 text-sm">
-                        <span>{criterion.label}{!isSelect && criterion.weight !== 1 ? (
+                        <span>{criterion.label}{!isUnscoredCriterion(criterion) && criterion.weight !== 1 ? (
                           <span className="ml-1 text-xs text-gray-500">×{criterion.weight}</span>
                         ) : null}</span>
-                        {isSelect ? (
+                        {isText ? (
+                          <textarea name={`score-${criterion.key}`} rows={2} disabled={!round.canReview}
+                            defaultValue={typeof round.review?.scores[criterion.key] === "string" ? String(round.review.scores[criterion.key]) : ""}
+                            aria-label={`${round.name}: ${criterion.label}`}
+                            className="rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900" />
+                        ) : isSelect ? (
                           <select name={`score-${criterion.key}`} required disabled={!round.canReview}
                             defaultValue={typeof round.review?.scores[criterion.key] === "string" ? String(round.review.scores[criterion.key]) : ""}
                             aria-label={`${round.name}: ${criterion.label}`}

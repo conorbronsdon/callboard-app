@@ -143,7 +143,17 @@ export interface StoredTriage {
   reasoning: string | null;
   model: string;
   status: "ok" | "failed";
+  organizerScore: number | null;
+  organizerNote: string | null;
   createdAt: string | null;
+}
+
+export function parseOrganizerScore(raw: string | null | undefined): number | null {
+  if (raw === null || raw === undefined || raw.trim() === "") return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return null;
+  const rounded = Math.round(parsed);
+  return rounded >= 1 && rounded <= 5 ? rounded : null;
 }
 
 /**
@@ -236,6 +246,59 @@ export async function dismissTriage(
     )
     .limit(1);
   return { ok: !claimed };
+}
+
+/**
+ * Organizer overrides stay advisory: this UPDATE can touch only `ai_triage`,
+ * never `reviews`, so it cannot enter committee aggregates or score exports.
+ *
+ * Refuses on a claimed row (`status = "claimed"`, an in-flight bulk
+ * reservation — same `ne(status, "claimed")` WHERE-clause guard as
+ * `dismissTriage`) and on a soft-dismissed row (`dismissedAt` set). Both
+ * mirror `loadTriage`, which already hides the card's whole triage section —
+ * including this control — for exactly those two states; a row an organizer
+ * cannot see is not one they can score, even via a direct POST that skips the
+ * UI. Unlike `dismissTriage`, a genuinely missing row and a blocked one are
+ * not distinguished — there is no prior "delete always succeeds" contract to
+ * preserve here, so one error covers "nothing to attach your score to."
+ */
+export async function saveOrganizerScore(
+  db: DB,
+  args: {
+    eventId: string;
+    sessionId: string;
+    scoredById: string;
+    score: number;
+    note: string | null;
+  },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const score = parseOrganizerScore(String(args.score));
+  if (score === null || !Number.isInteger(args.score) || score !== args.score) {
+    return { ok: false, error: "Your score must be a whole number from 1 to 5." };
+  }
+
+  const collapsedNote = String(args.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+  const updated = await db
+    .update(aiTriage)
+    .set({
+      organizerScore: score,
+      organizerNote: collapsedNote || null,
+      organizerScoredById: args.scoredById,
+      organizerScoredAt: new Date(),
+    })
+    .where(
+      and(
+        eq(aiTriage.eventId, args.eventId),
+        eq(aiTriage.sessionId, args.sessionId),
+        ne(aiTriage.status, "claimed"),
+        isNull(aiTriage.dismissedAt),
+      ),
+    )
+    .returning({ id: aiTriage.id });
+
+  return updated.length > 0
+    ? { ok: true }
+    : { ok: false, error: "Run AI triage before saving your score." };
 }
 
 /** One submission, end to end. Returns the outcome so a caller can count it. */
@@ -463,6 +526,8 @@ export async function loadTriage(
       reasoning: aiTriage.reasoning,
       model: aiTriage.model,
       status: aiTriage.status,
+      organizerScore: aiTriage.organizerScore,
+      organizerNote: aiTriage.organizerNote,
       createdAt: aiTriage.createdAt,
     })
     .from(aiTriage)
@@ -485,6 +550,8 @@ export async function loadTriage(
     reasoning: row.reasoning,
     model: row.model,
     status: row.status,
+    organizerScore: row.organizerScore,
+    organizerNote: row.organizerNote,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
   };
 }

@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildEmbedXml,
   buildEmbedUrl,
   buildFeedUrl,
   buildIframeSnippet,
   buildSnippet,
+  isEmbedFormat,
   parseAccent,
+  parseCustomCss,
   parseDensity,
   parseFormat,
+  parseHiddenFields,
   parseTheme,
   readSavedEmbeds,
   removeSavedEmbed,
@@ -33,6 +37,8 @@ const saved: SavedEmbed = {
   format: "iframe",
   density: "full",
   accent: null,
+  customCss: null,
+  hiddenFields: [],
   enabled: true,
   createdAt: 1_786_400_000_000,
 };
@@ -72,6 +78,60 @@ describe("saved-embed track references", () => {
 });
 
 describe("embed code builders", () => {
+  it("MUST FIRE: JSON and XML are accepted embed formats", () => {
+    expect(isEmbedFormat("json")).toBe(true);
+    expect(isEmbedFormat("xml")).toBe(true);
+    expect(parseFormat("xml")).toBe("xml");
+  });
+
+  it("MUST NOT FIRE: unknown structured formats fall back to iframe", () => {
+    expect(isEmbedFormat("yaml")).toBe(false);
+    expect(parseFormat("yaml")).toBe("iframe");
+  });
+
+  it("MUST FIRE: XML keeps field order, escapes text, and stringifies scalars", () => {
+    expect(
+      buildEmbedXml("speakers", "speaker", [
+        { id: "sp&1", name: "Ada <Lovelace>", sessionCount: 2, featured: true },
+      ]),
+    ).toBe(
+      '<?xml version="1.0" encoding="UTF-8"?><speakers><speaker><id>sp&amp;1</id><name>Ada &lt;Lovelace&gt;</name><sessionCount>2</sessionCount><featured>true</featured></speaker></speakers>',
+    );
+  });
+
+  it("MUST NOT FIRE: XML omits null fields instead of emitting empty tags", () => {
+    const xml = buildEmbedXml("sessions", "session", [
+      { id: "s1", room: null, title: "Safe > sound" },
+    ]);
+    expect(xml).not.toContain("<room>");
+    expect(xml).toContain("<id>s1</id><title>Safe &gt; sound</title>");
+  });
+
+  it("MUST FIRE: custom CSS trims, round-trips, and clamps to 4000 characters", () => {
+    expect(parseCustomCss("  .card { color: red; }  ")).toBe(".card { color: red; }");
+    expect(parseCustomCss("x".repeat(4_001))).toHaveLength(4_000);
+  });
+
+  it("MUST NOT FIRE: custom CSS cannot break out into style or script markup", () => {
+    const parsed = parseCustomCss("</StYlE><ScRiPt>alert(1)</script>");
+    expect(parsed?.toLowerCase()).not.toContain("</style");
+    expect(parsed?.toLowerCase()).not.toContain("<script");
+    expect(parseCustomCss("   ")).toBeNull();
+  });
+
+  it("MUST FIRE: hidden fields retain valid ids in first-seen order", () => {
+    expect(parseHiddenFields("schedule", ["track", "room", "track"])).toEqual([
+      "track",
+      "room",
+    ]);
+  });
+
+  it("MUST NOT FIRE: hidden fields drop unknown and cross-widget ids", () => {
+    expect(parseHiddenFields("speakers", ["room", "company", "unknown"])).toEqual([
+      "company",
+    ]);
+  });
+
   it("MUST FIRE: accepts and normalises hex accents", () => {
     expect(parseAccent(" #0F766E ")).toBe("#0f766e");
     expect(parseAccent("#FFF")).toBe("#fff");
@@ -93,7 +153,7 @@ describe("embed code builders", () => {
 
   it("defaults unknown formats and densities", () => {
     expect(parseFormat("html")).toBe("html");
-    expect(parseFormat("xml")).toBe("iframe");
+    expect(parseFormat("yaml")).toBe("iframe");
     expect(parseFormat(null)).toBe("iframe");
     expect(parseDensity("compact")).toBe("compact");
     expect(parseDensity("airy")).toBe("full");
@@ -145,6 +205,18 @@ describe("embed code builders", () => {
     ).toBe("https://callboard.test/embed/conf/agenda");
   });
 
+  it("MUST FIRE: data formats and valid hidden fields are added to ad-hoc URLs", () => {
+    expect(
+      buildEmbedUrl({
+        origin: "https://callboard.test",
+        slug: "conf",
+        widget: "schedule",
+        format: "json",
+        hiddenFields: ["room", "unknown", "track"],
+      }),
+    ).toBe("https://callboard.test/embed/conf/schedule?format=json&hide=room&hide=track");
+  });
+
   it("MUST NOT FIRE: a saved embed URL contains no ad-hoc options", () => {
     expect(
       buildEmbedUrl({
@@ -155,6 +227,8 @@ describe("embed code builders", () => {
         theme: "dark",
         accent: "#fff",
         density: "compact",
+        format: "xml",
+        hiddenFields: ["room"],
       }),
     ).toBe("https://callboard.test/embed/conf/schedule?embed=saved-1");
   });
@@ -186,6 +260,10 @@ describe("embed code builders", () => {
     expect(buildSnippet({ ...base, format: "ical" })).toContain(
       'href="https://x.test/e/conf/schedule.ics?a=1&amp;b=2"',
     );
+    expect(buildSnippet({ ...base, format: "json" })).toContain(
+      "Fetch A &amp; &lt;B&gt;",
+    );
+    expect(buildSnippet({ ...base, format: "xml" })).not.toContain("&lt;iframe");
   });
 
   it("MUST NOT FIRE: iCal without a feed falls back to a live iframe", () => {
@@ -241,12 +319,33 @@ describe("saved embed settings", () => {
       format: "iframe",
       density: "full",
       accent: null,
+      customCss: null,
+      hiddenFields: [],
     });
     expect(
       readSavedEmbeds({
-        embeds: [{ ...saved, format: "xml", density: "airy", accent: "red;}body{display:none" }],
+        embeds: [
+          {
+            ...saved,
+            format: "yaml",
+            density: "airy",
+            accent: "red;}body{display:none",
+            customCss: "</style><script>alert(1)</script>",
+            hiddenFields: ["room", "unknown", "room"],
+          },
+        ],
       })[0],
-    ).toMatchObject({ format: "iframe", density: "full", accent: null });
+    ).toMatchObject({
+      format: "iframe",
+      density: "full",
+      accent: null,
+      hiddenFields: ["room"],
+    });
+    const sanitised = readSavedEmbeds({
+      embeds: [{ ...saved, customCss: "</style><script>alert(1)</script>" }],
+    })[0].customCss;
+    expect(sanitised?.toLowerCase()).not.toContain("</style");
+    expect(sanitised?.toLowerCase()).not.toContain("<script");
   });
   it("tolerates absent and malformed settings while retaining a valid subset", () => {
     expect(readSavedEmbeds(null)).toEqual([]);

@@ -87,6 +87,58 @@ describe("parseRubricEditor", () => {
     });
   });
 
+  it("must fire: accepts text beside a scored criterion and ignores numeric garbage", () => {
+    expect(parseRubricEditor({
+      keys: ["fit", "reviewer_note"],
+      labels: ["Programme fit", "Reviewer note"],
+      mins: ["1", "abc"],
+      maxes: ["5", "-50"],
+      weights: ["2", "999"],
+      types: ["number", "text"],
+      options: ["", "this is ignored too"],
+    })).toEqual({
+      ok: true,
+      rubric: {
+        criteria: [
+          { key: "fit", label: "Programme fit", min: 1, max: 5, weight: 2 },
+          {
+            key: "reviewer_note",
+            label: "Reviewer note",
+            min: 0,
+            max: 0,
+            weight: 0,
+            type: "text",
+          },
+        ],
+      },
+    });
+  });
+
+  it("must NOT fire: rejects a rubric made only of text criteria", () => {
+    const result = parseRubricEditor({
+      keys: ["reviewer_note"],
+      labels: ["Reviewer note"],
+      mins: ["abc"],
+      maxes: ["-50"],
+      weights: ["999"],
+      types: ["text"],
+      options: ["ignored"],
+    });
+
+    expect(result).toMatchObject({ ok: false });
+    expect((result as { error: string }).error).toContain("at least one scored criterion");
+
+    expect(parseRubricEditor({
+      keys: ["recommendation", "reviewer_note"],
+      labels: ["Recommendation", "Reviewer note"],
+      mins: ["0", "abc"],
+      maxes: ["0", "-50"],
+      weights: ["0", "999"],
+      types: ["select", "text"],
+      options: ["Accept, Reject", "ignored"],
+    })).toMatchObject({ ok: false });
+  });
+
   it("must NOT fire: rejects a rubric made only of dropdowns", () => {
     /*
      * The case the suite lacked. Every other dropdown test adds a select

@@ -30,6 +30,14 @@ const TEAM = "90000000-0000-4000-8000-000000000003";
 const OPEN_ROUND = "90000000-0000-4000-8000-000000000004";
 const NON_MEMBER = "90000000-0000-4000-8000-000000000017";
 const OTHER_TEAM = "90000000-0000-4000-8000-000000000018";
+const TEXT_CRITERION = {
+  key: "reviewer_note",
+  label: "Reviewer note",
+  min: 0,
+  max: 0,
+  weight: 0,
+  type: "text" as const,
+};
 
 let ctx: TestDbContext;
 let fixture: DemoFixture;
@@ -191,6 +199,66 @@ describe("reviewer workspace", () => {
     });
     const reloaded = await load();
     expect(reloaded.assignments[0].review).toMatchObject({ totalScore: 14, comment: "Clear and directly useful." });
+  });
+
+  it("must fire: renders optional free text and saves empty and non-empty answers", async () => {
+    await ctx.db
+      .update(reviewRounds)
+      .set({ rubric: { criteria: [
+        { key: "fit", label: "Programme fit", min: 1, max: 5, weight: 2 },
+        { key: "clarity", label: "Clarity", min: 1, max: 5, weight: 1 },
+        TEXT_CRITERION,
+      ] } })
+      .where(eq(reviewRounds.id, OPEN_ROUND));
+
+    const html = renderToStaticMarkup(
+      <ReviewerWorkspaceView loaderData={await load()} actionData={undefined} />,
+    );
+    const textarea = html.match(/<textarea[^>]*name="score-reviewer_note"[^>]*>/)?.[0];
+    expect(textarea).toBeDefined();
+    expect(textarea).not.toContain("required");
+    expect(textarea).toContain('aria-label="Reviewer note"');
+    expect(html).not.toContain("×0");
+
+    const emptyResponse = await post(REVIEWER, {
+      intent: "save-review",
+      roundId: OPEN_ROUND,
+      sessionId: fixture.abstractIds[3],
+      "score-fit": "5",
+      "score-clarity": "4",
+    });
+    expect((emptyResponse as Response).status).toBe(302);
+    let saved = await ctx.db.query.reviews.findFirst({
+      where: and(
+        eq(reviews.roundId, OPEN_ROUND),
+        eq(reviews.sessionId, fixture.abstractIds[3]),
+        eq(reviews.reviewerId, REVIEWER),
+      ),
+    });
+    expect(saved?.scores).toEqual({ fit: 5, clarity: 4, reviewer_note: "" });
+
+    const textResponse = await post(REVIEWER, {
+      intent: "save-review",
+      roundId: OPEN_ROUND,
+      sessionId: fixture.abstractIds[3],
+      "score-fit": "5",
+      "score-clarity": "4",
+      "score-reviewer_note": "Strong evidence, clear scope.",
+    });
+    expect((textResponse as Response).status).toBe(302);
+    saved = await ctx.db.query.reviews.findFirst({
+      where: and(
+        eq(reviews.roundId, OPEN_ROUND),
+        eq(reviews.sessionId, fixture.abstractIds[3]),
+        eq(reviews.reviewerId, REVIEWER),
+      ),
+    });
+    expect(saved?.scores).toEqual({
+      fit: 5,
+      clarity: 4,
+      reviewer_note: "Strong evidence, clear scope.",
+    });
+    expect(saved?.totalScore).toBe(14);
   });
 
   it("must NOT fire: invalid scores, unassigned abstracts, and closed rounds write nothing", async () => {

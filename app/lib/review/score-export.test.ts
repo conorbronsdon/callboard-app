@@ -227,6 +227,99 @@ describe("review score CSV", () => {
     expect(withDropdown[1][5]).toBe(without[1][5]);
   });
 
+  it("must fire: exports free text after dropdowns and before comments and AI", () => {
+    const rounds: ScoreExportRound[] = [
+      {
+        id: "round-one",
+        name: "Screening",
+        rubric: {
+          criteria: [
+            ...RUBRIC.criteria,
+            {
+              key: "recommendation",
+              label: "Recommendation",
+              min: 0,
+              max: 0,
+              weight: 0,
+              type: "select",
+              options: ["Accept", "Reject"],
+            },
+            {
+              key: "reviewer_note",
+              label: "Reviewer note",
+              min: 0,
+              max: 0,
+              weight: 0,
+              type: "text",
+            },
+          ],
+        },
+      },
+    ];
+    const reviews = [
+      {
+        ...submitted("round-one", 10, {
+          recommendation: "Accept",
+          reviewer_note: "Concrete evidence and a crisp scope.",
+        }),
+        reviewerName: "Sam Whitfield",
+        comment: "Advance this one.",
+      },
+      {
+        ...submitted("round-one", 12, { recommendation: "Reject", reviewer_note: "" }),
+        reviewerName: "Blank Bea",
+      },
+      {
+        ...submitted("round-one", 11, { reviewer_note: "Useful, but needs a tighter demo." }),
+        reviewerName: "Zoe Last",
+      },
+      {
+        ...submitted("round-one", 15, { reviewer_note: "Must stay private" }),
+        reviewerName: "Recused Rita",
+        recusedAt: new Date("2026-08-12T13:00:00Z"),
+      },
+      {
+        roundId: "round-one",
+        totalScore: null,
+        scores: { reviewer_note: "Draft must stay private" },
+        submittedAt: null,
+        recusedAt: null,
+        reviewerName: "Draft Dan",
+      },
+    ];
+
+    const records = parseCsv(buildScoreCsv([submission("Text feedback", reviews)], rounds));
+    expect(records[0].slice(-5)).toEqual([
+      "Screening — Recommendation",
+      "Screening — Reviewer note",
+      "Reviewer comments",
+      "AI triage score (advisory)",
+      "AI triage recommendation (advisory)",
+    ]);
+    expect(records[1].slice(-5)).toEqual([
+      "Accept ×1; Reject ×1",
+      "Sam Whitfield (Screening): Concrete evidence and a crisp scope. | Zoe Last (Screening): Useful, but needs a tighter demo.",
+      "Sam Whitfield (Screening): Advance this one.",
+      "",
+      "",
+    ]);
+    expect(records[1].join("|")).not.toContain("Must stay private");
+    expect(records[1].join("|")).not.toContain("Draft must stay private");
+
+    const blankRecord = parseCsv(
+      buildScoreCsv(
+        [submission("Blank text", [
+          {
+            ...submitted("round-one", 12, { recommendation: "Reject", reviewer_note: "" }),
+            reviewerName: "Blank Bea",
+          },
+        ])],
+        rounds,
+      ),
+    )[1];
+    expect(blankRecord.at(-4)).toBe("");
+  });
+
   it("must fire: an all-dropdown round exports the true review count with a blank score", () => {
     /*
      * The case every other dropdown test here misses by one criterion: both of

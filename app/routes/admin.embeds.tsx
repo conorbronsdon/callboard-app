@@ -3,6 +3,7 @@ import { linkClass } from "~/components/shell";
 import { requireAdmin } from "~/lib/auth/auth.server";
 import {
   EMBED_FORMATS,
+  EMBED_FIELD_CATALOGUE,
   EMBED_WIDGETS,
   buildEmbedUrl,
   buildFeedUrl,
@@ -12,8 +13,10 @@ import {
   isEmbedFormat,
   isEmbedWidgetId,
   parseAccent,
+  parseCustomCss,
   parseDensity,
   parseFormat,
+  parseHiddenFields,
   parseTheme,
   removeSavedEmbed,
   resolveTrackRef,
@@ -56,6 +59,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     selectedFormat: parseFormat(url.searchParams.get("format")),
     selectedDensity: parseDensity(url.searchParams.get("density")),
     selectedAccent: parseAccent(url.searchParams.get("accent")),
+    selectedCustomCss: parseCustomCss(url.searchParams.get("customCss")),
+    selectedHiddenFields: parseHiddenFields(
+      selectedWidget,
+      url.searchParams.getAll("hide"),
+    ),
     showSnippet: url.searchParams.has("w") && isEmbedWidgetId(requestedWidget),
   };
 }
@@ -83,6 +91,7 @@ export async function action({ request }: Route.ActionArgs) {
     const density = String(formData.get("density") ?? "");
     const accentValue = String(formData.get("accent") ?? "").trim();
     const accent = parseAccent(accentValue);
+    const customCss = parseCustomCss(String(formData.get("customCss") ?? ""));
 
     if (!name) return { ok: false as const, error: "Name is required." };
     if (name.length > 80) {
@@ -103,6 +112,10 @@ export async function action({ request }: Route.ActionArgs) {
     if (accentValue && !accent) {
       return { ok: false as const, error: "Accent must be a hex colour like #0f766e." };
     }
+    const hiddenFields = parseHiddenFields(
+      widget,
+      formData.getAll("hide").map(String),
+    );
 
     const settings = upsertSavedEmbed(state.settings, {
       id: crypto.randomUUID(),
@@ -113,6 +126,8 @@ export async function action({ request }: Route.ActionArgs) {
       format,
       density,
       accent,
+      customCss,
+      hiddenFields,
       enabled: true,
       createdAt: Date.now(),
     });
@@ -219,6 +234,8 @@ export default function AdminEmbeds({ loaderData, actionData }: Route.ComponentP
     selectedFormat,
     selectedDensity,
     selectedAccent,
+    selectedCustomCss,
+    selectedHiddenFields,
     showSnippet,
   } = loaderData;
 
@@ -251,6 +268,9 @@ export default function AdminEmbeds({ loaderData, actionData }: Route.ComponentP
           const format = active ? selectedFormat : "iframe";
           const density = active ? selectedDensity : "full";
           const accent = active ? selectedAccent : null;
+          const customCss = active ? selectedCustomCss : null;
+          const hiddenFields = active ? selectedHiddenFields : [];
+          const fields = EMBED_FIELD_CATALOGUE[widget.id];
           const embedUrl = buildEmbedUrl({
             origin,
             slug: event.slug,
@@ -259,6 +279,8 @@ export default function AdminEmbeds({ loaderData, actionData }: Route.ComponentP
             track,
             density,
             accent,
+            format,
+            hiddenFields,
           });
           const feedUrl = buildFeedUrl({ origin, slug: event.slug, widget: widget.id });
           const snippet = buildSnippet({
@@ -384,6 +406,44 @@ export default function AdminEmbeds({ loaderData, actionData }: Route.ComponentP
                   />
                 </div>
                 <div className="sm:col-span-2">
+                  <label
+                    htmlFor={`embed-custom-css-${widget.id}`}
+                    className="mb-1 block text-sm font-medium"
+                  >
+                    Custom CSS
+                  </label>
+                  <textarea
+                    id={`embed-custom-css-${widget.id}`}
+                    name="customCss"
+                    aria-label={`Custom CSS for ${widget.label}`}
+                    rows={5}
+                    maxLength={4000}
+                    defaultValue={customCss ?? ""}
+                    className={inputClass}
+                  />
+                </div>
+                {fields.length > 0 ? (
+                  <fieldset className="sm:col-span-2">
+                    <legend className="mb-1 text-sm font-medium">Hide fields</legend>
+                    <div className="flex flex-wrap gap-4">
+                      {fields.map((field) => (
+                        <label key={field.id} className="flex items-center gap-2 text-sm">
+                          <input
+                            id={`embed-hide-${field.id}-${widget.id}`}
+                            type="checkbox"
+                            name="hide"
+                            value={field.id}
+                            aria-label={`Hide ${field.label} for ${widget.label}`}
+                            defaultChecked={hiddenFields.includes(field.id)}
+                            className="h-4 w-4 rounded border-gray-300"
+                          />
+                          {field.label}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                ) : null}
+                <div className="sm:col-span-2">
                   <button
                     type="submit"
                     aria-label={`Get Code for ${widget.label}`}
@@ -454,6 +514,10 @@ export default function AdminEmbeds({ loaderData, actionData }: Route.ComponentP
                 <input type="hidden" name="format" value={format} />
                 <input type="hidden" name="density" value={density} />
                 <input type="hidden" name="accent" value={accent ?? ""} />
+                <input type="hidden" name="customCss" value={customCss ?? ""} />
+                {hiddenFields.map((field) => (
+                  <input key={field} type="hidden" name="hide" value={field} />
+                ))}
                 <div className="min-w-0 flex-1">
                   <label
                     htmlFor={`embed-name-${widget.id}`}

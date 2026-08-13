@@ -1,4 +1,4 @@
-export type RubricCriterionType = "number" | "select";
+export type RubricCriterionType = "number" | "select" | "text";
 
 export interface RubricCriterion {
   key: string;
@@ -53,6 +53,14 @@ export function isSelectCriterion(c: RubricCriterion): boolean {
   return c.type === "select";
 }
 
+export function isTextCriterion(c: RubricCriterion): boolean {
+  return c.type === "text";
+}
+
+export function isUnscoredCriterion(c: RubricCriterion): boolean {
+  return isSelectCriterion(c) || isTextCriterion(c);
+}
+
 /**
  * Turns persisted JSON into a safe rubric. Invalid criteria are ignored and a
  * completely invalid rubric falls back to the small, seeded default.
@@ -69,6 +77,12 @@ export function parseRubric(value: unknown): Rubric {
     const candidate = entry as Record<string, unknown>;
     const key = String(candidate.key ?? "").trim();
     const label = String(candidate.label ?? "").trim();
+    if (candidate.type === "text") {
+      if (!key || !label || seen.has(key)) continue;
+      seen.add(key);
+      criteria.push({ key, label, min: 0, max: 0, weight: 0, type: "text" });
+      continue;
+    }
     if (candidate.type === "select") {
       if (!key || !label || seen.has(key) || !Array.isArray(candidate.options)) continue;
       const options = [...new Set(candidate.options.map((option) => String(option).trim()))].filter(
@@ -107,7 +121,7 @@ export type ScoreResult =
 
 /**
  * Strictly validates every criterion and calculates the persisted weighted sum.
- * Select criteria are recorded but deliberately excluded from the weighted numeric total.
+ * Unscored criteria are recorded but deliberately excluded from the weighted numeric total.
  */
 export function scoreRubric(
   rubric: Rubric,
@@ -118,6 +132,12 @@ export function scoreRubric(
   let maxScore = 0;
 
   for (const criterion of rubric.criteria) {
+    if (isTextCriterion(criterion)) {
+      const value = String(input[criterion.key] ?? "").trim();
+      // Free text is an optional comment; unlike a dropdown, an empty answer is meaningful.
+      scores[criterion.key] = value;
+      continue;
+    }
     if (isSelectCriterion(criterion)) {
       const value = String(input[criterion.key] ?? "").trim();
       if (!value) {

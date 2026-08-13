@@ -39,6 +39,8 @@ export interface AiTriageCardData {
   reasoning: string | null;
   model: string;
   status: "ok" | "failed";
+  organizerScore: number | null;
+  organizerNote: string | null;
   createdAt: string | null;
 }
 
@@ -194,6 +196,11 @@ export function AiTriageCard({
           <p className="mt-2 text-xs text-gray-500" data-testid="ai-triage-model-failed">
             AI-generated ({triage.model})
           </p>
+          {triage.organizerScore !== null ? (
+            <p className="mt-2 text-sm font-medium tabular-nums" data-testid="organizer-score">
+              Organizer: {triage.organizerScore}/5
+            </p>
+          ) : null}
         </div>
       ) : (
         <div className="mt-3" data-testid="ai-triage-result">
@@ -210,6 +217,11 @@ export function AiTriageCard({
                 {RECOMMENDATION_LABELS[triage.recommendation]}
               </span>
             ) : null}
+            {triage.organizerScore !== null ? (
+              <span className="text-sm font-medium tabular-nums" data-testid="organizer-score">
+                Organizer: {triage.organizerScore}/5
+              </span>
+            ) : null}
           </div>
           <p className="mt-2 text-sm leading-relaxed break-words whitespace-pre-line">
             {triage.reasoning}
@@ -220,6 +232,41 @@ export function AiTriageCard({
           </p>
         </div>
       )}
+
+      {triage ? (
+        <form method="post" className="mt-4 flex flex-wrap items-end gap-3">
+          <input type="hidden" name="intent" value="save-organizer-score" />
+          <HiddenContext tab={tab} trackId={trackId} />
+          <label className="text-sm text-gray-700 dark:text-gray-300">
+            Your score
+            <input
+              type="number"
+              name="organizerScore"
+              min={1}
+              max={5}
+              step={1}
+              required
+              defaultValue={triage.organizerScore ?? ""}
+              aria-label="Your score"
+              className="ml-2 w-16 rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900"
+            />
+          </label>
+          <label className="min-w-48 flex-1 text-sm text-gray-700 dark:text-gray-300">
+            Your note
+            <input
+              type="text"
+              name="organizerNote"
+              maxLength={200}
+              defaultValue={triage.organizerNote ?? ""}
+              aria-label="Your note"
+              className="ml-2 w-full max-w-md rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900"
+            />
+          </label>
+          <button type="submit" className={buttonClass("secondary", "sm")}>
+            Save your score
+          </button>
+        </form>
+      ) : null}
     </section>
   );
 }

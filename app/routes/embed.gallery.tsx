@@ -12,6 +12,7 @@
 import { EmbedShell } from "~/components/embed-shell";
 import { SpeakerMonogram } from "~/components/speaker-monogram";
 import { getDb } from "~/db/client.server";
+import { buildEmbedXml } from "~/lib/embeds";
 import { resolveEmbedOptions } from "~/lib/embeds.server";
 import {
   getPublicSpeakerEvent,
@@ -25,17 +26,35 @@ export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: event ? `Speaker gallery — ${event}` : "Speaker gallery — callboard" }];
 }
 
-export async function loader({ params, request }: Route.LoaderArgs) {
+async function loaderImpl({ params, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const { theme, track, accent, density } = await resolveEmbedOptions(
-    params.slug,
-    url,
-    "gallery",
-  );
+  const { theme, track, accent, density, format, customCss, hiddenFields } =
+    await resolveEmbedOptions(params.slug, url, "gallery");
   const db = getDb();
   const event = await getPublicSpeakerEvent(db, params.slug);
   if (!event) throw new Response("Event not found", { status: 404 });
   const { speakers, total } = await listPublicSpeakers(db, event.id, "");
+  const hidden = new Set(hiddenFields);
+  const exportSpeakers = speakers.map((speaker) => ({
+    id: speaker.id,
+    name: speaker.displayName,
+    ...(!hidden.has("title") ? { title: speaker.title } : {}),
+    ...(!hidden.has("company") ? { company: speaker.company } : {}),
+    sessionCount: speaker.sessionCount,
+  }));
+
+  if (format === "json") {
+    return Response.json({
+      event: { name: event.name, slug: event.slug },
+      speakers: exportSpeakers,
+      total,
+    });
+  }
+  if (format === "xml") {
+    return new Response(buildEmbedXml("gallery", "speaker", exportSpeakers), {
+      headers: { "Content-Type": "application/xml; charset=utf-8" },
+    });
+  }
 
   return {
     event: { name: event.name, slug: event.slug },
@@ -44,6 +63,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     // public.speakers.tsx.
     speakers: speakers.map((speaker) => ({
       ...speaker,
+      title: hidden.has("title") ? null : speaker.title,
+      company: hidden.has("company") ? null : speaker.company,
       photoHref: speaker.photoVersion
         ? publicSpeakerPhotoHref(event.slug, speaker.id, speaker.photoVersion)
         : null,
@@ -53,16 +74,23 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     track,
     accent,
     density,
+    customCss,
+    hiddenFields,
   };
 }
 
+export const loader = loaderImpl as (
+  args: Route.LoaderArgs,
+) => Promise<Exclude<Awaited<ReturnType<typeof loaderImpl>>, Response>>;
+
 export default function EmbedGallery({ loaderData }: Route.ComponentProps) {
-  const { event, speakers, total, theme, accent, density } = loaderData;
+  const { event, speakers, total, theme, accent, density, customCss } = loaderData;
   return (
     <EmbedShell
       theme={theme}
       accent={accent}
       density={density}
+      customCss={customCss}
       eyebrow="Speaker gallery"
       title={event.name}
       testId="embed-gallery"

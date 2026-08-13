@@ -1,4 +1,4 @@
-import { isSelectCriterion, type Rubric } from "./scoring";
+import { isSelectCriterion, isUnscoredCriterion, type Rubric } from "./scoring";
 
 export interface AggregateReview {
   roundId: string;
@@ -26,7 +26,7 @@ export interface ChoiceSummary {
 
 export function rubricWeightTotal(rubric: Rubric): number {
   return rubric.criteria.reduce(
-    (total, criterion) => total + (isSelectCriterion(criterion) ? 0 : criterion.weight),
+    (total, criterion) => total + (isUnscoredCriterion(criterion) ? 0 : criterion.weight),
     0,
   );
 }
@@ -35,13 +35,13 @@ export function rubricWeightTotal(rubric: Rubric): number {
  * The denominator a reviewer actually sees: every criterion at its maximum,
  * weighted. The submission detail page has always printed "15.0 / 25" from its
  * own inline reduce over `max * weight`; this is that reduce, named, so the
- * list can print the same string. Select criteria parse to max 0 / weight 0 and
- * so contribute nothing to either formula.
+ * list can print the same string. Unscored criteria parse to max 0 / weight 0
+ * and so contribute nothing to either formula.
  */
 export function rubricMaxTotal(rubric: Rubric): number {
   return rubric.criteria.reduce(
     (total, criterion) =>
-      total + (isSelectCriterion(criterion) ? 0 : criterion.max * criterion.weight),
+      total + (isUnscoredCriterion(criterion) ? 0 : criterion.max * criterion.weight),
     0,
   );
 }
@@ -59,7 +59,9 @@ export function rubricSpanTotal(rubric: Rubric): number {
   return rubric.criteria.reduce(
     (total, criterion) =>
       total +
-      (isSelectCriterion(criterion) ? 0 : (criterion.max - criterion.min) * criterion.weight),
+      (isUnscoredCriterion(criterion)
+        ? 0
+        : (criterion.max - criterion.min) * criterion.weight),
     0,
   );
 }

@@ -209,6 +209,50 @@ describe("review operations", () => {
     });
   });
 
+  it("must fire: renders and round-trips a free-text criterion", async () => {
+    const round = await createRound();
+    const before = renderToStaticMarkup(<ReviewOperationsView {...(await load())} />);
+    expect(before).toContain('<option value="text">Free text</option>');
+
+    const response = await post([
+      ["intent", "save-rubric"],
+      ["roundId", round!.id],
+      ["criterionType", "number"],
+      ["criterionKey", "fit"],
+      ["criterionLabel", "Programme fit"],
+      ["criterionMin", "1"],
+      ["criterionMax", "5"],
+      ["criterionWeight", "2"],
+      ["criterionOptions", ""],
+      ["criterionRemove", ""],
+      ["criterionType", "text"],
+      ["criterionKey", "reviewer_note"],
+      ["criterionLabel", "Reviewer note"],
+      ["criterionMin", "abc"],
+      ["criterionMax", "-50"],
+      ["criterionWeight", "999"],
+      ["criterionOptions", "ignored option text"],
+      ["criterionRemove", ""],
+    ]);
+
+    expect((response as Response).status).toBe(302);
+    const reloaded = await load();
+    expect(reloaded.rounds[0].rubric.criteria).toEqual([
+      { key: "fit", label: "Programme fit", min: 1, max: 5, weight: 2 },
+      {
+        key: "reviewer_note",
+        label: "Reviewer note",
+        min: 0,
+        max: 0,
+        weight: 0,
+        type: "text",
+      },
+    ]);
+    const after = renderToStaticMarkup(<ReviewOperationsView {...reloaded} />);
+    expect(after).toContain('<option value="text" selected="">Free text</option>');
+    expect(after).toContain("Minimum, maximum, weight, and options are ignored for free-text criteria.");
+  });
+
   it("must NOT fire: rejects one dropdown option without changing the stored rubric", async () => {
     const round = await createRound();
     const before = round!.rubric;

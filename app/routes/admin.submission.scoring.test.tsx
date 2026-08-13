@@ -49,6 +49,14 @@ const SELECT_CRITERION = {
   type: "select" as const,
   options: ["Accept", "Maybe", "Reject"],
 };
+const TEXT_CRITERION = {
+  key: "reviewer_note",
+  label: "Reviewer note",
+  min: 0,
+  max: 0,
+  weight: 0,
+  type: "text" as const,
+};
 
 beforeEach(async () => {
   ctx = installTestDb();
@@ -300,6 +308,67 @@ describe("multi-round rubric scoring", () => {
 
     expect(numericAverage).toBe("average 21.0 / 25");
     expect(dropdownAverage).toBe(numericAverage);
+  });
+
+  it("must fire: renders optional free text and saves empty and non-empty answers", async () => {
+    const target = fixture.abstractIds[3];
+    await ctx.db
+      .update(reviewRounds)
+      .set({ rubric: { criteria: [...NUMERIC_CRITERIA, TEXT_CRITERION] } })
+      .where(eq(reviewRounds.id, ROUND_ONE));
+
+    const html = renderToStaticMarkup(<SubmissionDetailView {...(await load(target))} />);
+    const textarea = html.match(/<textarea[^>]*name="score-reviewer_note"[^>]*>/)?.[0];
+    expect(textarea).toBeDefined();
+    expect(textarea).not.toContain("required");
+    expect(textarea).toContain('aria-label="Round 1 — screening: Reviewer note"');
+    expect(html).not.toContain("×0");
+
+    const emptyResponse = await post(target, {
+      intent: "save-review",
+      roundId: ROUND_ONE,
+      "score-relevance": "4",
+      "score-depth": "5",
+      "score-speaker": "3",
+    });
+    expect((emptyResponse as Response).status).toBe(302);
+    let saved = await ctx.db.query.reviews.findFirst({
+      where: and(
+        eq(reviews.roundId, ROUND_ONE),
+        eq(reviews.sessionId, target),
+        eq(reviews.reviewerId, fixture.adminId),
+      ),
+    });
+    expect(saved?.scores).toEqual({
+      relevance: 4,
+      depth: 5,
+      speaker: 3,
+      reviewer_note: "",
+    });
+
+    const textResponse = await post(target, {
+      intent: "save-review",
+      roundId: ROUND_ONE,
+      "score-relevance": "4",
+      "score-depth": "5",
+      "score-speaker": "3",
+      "score-reviewer_note": "Strong evidence, clear scope.",
+    });
+    expect((textResponse as Response).status).toBe(302);
+    saved = await ctx.db.query.reviews.findFirst({
+      where: and(
+        eq(reviews.roundId, ROUND_ONE),
+        eq(reviews.sessionId, target),
+        eq(reviews.reviewerId, fixture.adminId),
+      ),
+    });
+    expect(saved?.scores).toEqual({
+      relevance: 4,
+      depth: 5,
+      speaker: 3,
+      reviewer_note: "Strong evidence, clear scope.",
+    });
+    expect(saved?.totalScore).toBe(21);
   });
 
   it("proves two scored rounds transition through the queue into an accepted session", async () => {

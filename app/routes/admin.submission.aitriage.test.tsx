@@ -280,6 +280,7 @@ describe("the triage card says who wrote it", () => {
     expect(html).toContain("not in a form we could read");
     expect(html).toContain("Sure! Here is my answer");
     expect(html).toContain(`AI-generated (${AI_TRIAGE_MODEL})`);
+    expect(html).toContain("Save your score");
     // must-not-fire: a failure must not render as a score of zero.
     expect(html).not.toContain("Lean accept");
   });
@@ -293,6 +294,8 @@ describe("the triage card says who wrote it", () => {
     expect(html).toContain("AI triage unavailable in this deployment");
     // The button must NOT be offered when pressing it could only fail.
     expect(html).not.toContain('data-testid="ai-triage-run"');
+    expect(html).not.toContain('name="organizerScore"');
+    expect(html).not.toContain("Save your score");
   });
 
   it("must-not-fire: a seeded row still renders when the binding is absent", async () => {
@@ -319,6 +322,9 @@ describe("the triage card says who wrote it", () => {
     expect(html).toContain('data-testid="ai-triage-rerun"');
     expect(html).toMatch(/data-testid="ai-triage-rerun"[^>]*\sdisabled=""/);
     expect(html).toMatch(/data-testid="ai-triage-dismiss"[^>]*\sdisabled=""/);
+    const organizerInput = html.match(/<input[^>]*name="organizerScore"[^>]*>/)?.[0];
+    expect(organizerInput).toBeDefined();
+    expect(organizerInput).not.toContain("disabled=");
   });
 
   it("must-fire: the disabled 'Run again' explains itself instead of just greying out", async () => {
@@ -365,6 +371,247 @@ describe("the triage card says who wrote it", () => {
 });
 
 /* ──────────────────────────────────── authz ───────────────────────────── */
+
+describe("an organizer can record a separate numeric read", () => {
+  beforeEach(() => seed());
+
+  it("must-fire: a valid score persists attribution and renders beside the AI score", async () => {
+    await insertTriage(scored);
+
+    const response = await post(scored, {
+      intent: "save-organizer-score",
+      organizerScore: "4",
+      organizerNote: "Strong topic\nneeds a tighter ending.",
+      tab: "pending",
+    });
+    expect((response as Response).status).toBe(302);
+
+    const rows = await ctx.db
+      .select()
+      .from(aiTriage)
+      .where(and(eq(aiTriage.eventId, fixture.eventId), eq(aiTriage.sessionId, scored)));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].organizerScore).toBe(4);
+    expect(rows[0].organizerNote).toBe("Strong topic needs a tighter ending.");
+    expect(rows[0].organizerScoredById).toBe(fixture.adminId);
+    expect(rows[0].organizerScoredAt).toBeInstanceOf(Date);
+
+    const data = await detail(scored);
+    expect(data.triage?.organizerScore).toBe(4);
+    expect(data.triage?.organizerNote).toBe("Strong topic needs a tighter ending.");
+    const html = renderToStaticMarkup(<SubmissionDetailView {...data} />);
+    expect(html).toContain('data-testid="organizer-score"');
+    expect(html).toContain("Organizer: 4/5");
+    expect(html).toContain('name="organizerScore"');
+    expect(html).toContain('name="organizerNote"');
+  });
+
+  it("must-fire: an empty organizer note is normalized to null", async () => {
+    await insertTriage(scored, { organizerNote: "old note" });
+
+    await post(scored, {
+      intent: "save-organizer-score",
+      organizerScore: "3",
+      organizerNote: "  \n\t  ",
+      tab: "pending",
+    });
+
+    const row = await ctx.db.query.aiTriage.findFirst({
+      where: eq(aiTriage.sessionId, scored),
+    });
+    expect(row?.organizerScore).toBe(3);
+    expect(row?.organizerNote).toBeNull();
+  });
+
+  it("must-not-fire: organizer note content beyond 200 characters is not persisted", async () => {
+    await insertTriage(scored);
+    const longNote = "x".repeat(205);
+
+    await post(scored, {
+      intent: "save-organizer-score",
+      organizerScore: "3",
+      organizerNote: longNote,
+      tab: "pending",
+    });
+
+    const row = await ctx.db.query.aiTriage.findFirst({
+      where: eq(aiTriage.sessionId, scored),
+    });
+    expect(row?.organizerNote).toBe("x".repeat(200));
+    expect(row?.organizerNote).not.toContain("x".repeat(201));
+  });
+
+  it.each(["0", "6", "-1", "not-a-number"])(
+    "must-not-fire: invalid score %s is rejected without an organizer write",
+    async (organizerScore) => {
+      await insertTriage(scored);
+
+      const result = await post(scored, {
+        intent: "save-organizer-score",
+        organizerScore,
+        organizerNote: "This must not land.",
+        tab: "pending",
+      });
+      expect(result).toMatchObject({ ok: false });
+      expect((result as { error: string }).error).toContain("1 to 5");
+
+      const row = await ctx.db.query.aiTriage.findFirst({
+        where: eq(aiTriage.sessionId, scored),
+      });
+      expect(row?.organizerScore).toBeNull();
+      expect(row?.organizerNote).toBeNull();
+      expect(row?.organizerScoredById).toBeNull();
+      expect(row?.organizerScoredAt).toBeNull();
+      const html = renderToStaticMarkup(<SubmissionDetailView {...(await detail(scored))} />);
+      expect(html).not.toContain('data-testid="organizer-score"');
+    },
+  );
+
+  it("must-not-fire: saving before AI triage creates no row", async () => {
+    const result = await post(scored, {
+      intent: "save-organizer-score",
+      organizerScore: "4",
+      organizerNote: "No model row yet.",
+      tab: "pending",
+    });
+
+    expect(result).toMatchObject({ ok: false });
+    expect((result as { error: string }).error).toContain("Run AI triage");
+    expect(await triageRowCount()).toBe(0);
+  });
+
+  it("must-not-fire: an organizer score changes no review, aggregate, CSV, or status", async () => {
+    await insertTriage(scored);
+    const beforeRows = await listRows();
+    const beforeReviews = await ctx.db.select().from(reviews);
+    const beforeCsv = await csvText();
+    const scoreSortRequest = await signedInGet(
+      "https://x.test/admin/submissions?tab=pending&sort=score-desc",
+      fixture.adminId,
+    );
+    const beforeScoreOrder = (await listLoader(asListArgs(scoreSortRequest))).rows.map(
+      (row) => row.id,
+    );
+    const beforeSession = await ctx.db.query.sessions.findFirst({
+      where: eq(sessions.id, scored),
+    });
+    expect(beforeRows.find((row) => row.id === scored)?.aggregateScore).toBeCloseTo(11 / 3, 5);
+    expect(beforeReviews).toHaveLength(1);
+    expect(beforeSession?.status).toBe("pending");
+
+    await post(scored, {
+      intent: "save-organizer-score",
+      organizerScore: "5",
+      organizerNote: "My independent read.",
+      tab: "pending",
+    });
+
+    const afterRows = await listRows();
+    const afterReviews = await ctx.db.select().from(reviews);
+    const afterSession = await ctx.db.query.sessions.findFirst({
+      where: eq(sessions.id, scored),
+    });
+    expect(afterRows.map((row) => [row.id, row.reviewCount, row.aggregateScore])).toEqual(
+      beforeRows.map((row) => [row.id, row.reviewCount, row.aggregateScore]),
+    );
+    expect(afterReviews).toEqual(beforeReviews);
+    expect(await csvText()).toBe(beforeCsv);
+    expect((await listLoader(asListArgs(scoreSortRequest))).rows.map((row) => row.id)).toEqual(
+      beforeScoreOrder,
+    );
+    expect(afterSession?.status).toBe(beforeSession?.status);
+  });
+
+  /*
+   * Reconciliation with #173 (trifix): `loadTriage` already hides the whole
+   * triage section — this control included — for a claimed or soft-dismissed
+   * row (`row.status === "claimed"` / `dismissedAt` set both make it return
+   * null). `saveOrganizerScore`'s WHERE clause mirrors that at the write
+   * layer, so a direct POST that skips the UI cannot reach either row either
+   * — the same "invisible row is not a scoreable row" invariant, enforced
+   * twice rather than trusted from the read side alone.
+   */
+  it("must-not-fire: a claimed row (in-flight bulk reservation) refuses an organizer score", async () => {
+    await insertTriage(scored, { status: "claimed", score: null, recommendation: null });
+
+    const result = await post(scored, {
+      intent: "save-organizer-score",
+      organizerScore: "4",
+      organizerNote: "Should not land.",
+      tab: "pending",
+    });
+    expect(result).toMatchObject({ ok: false });
+    expect((result as { error: string }).error).toContain("Run AI triage");
+
+    const row = await ctx.db.query.aiTriage.findFirst({ where: eq(aiTriage.sessionId, scored) });
+    expect(row?.organizerScore).toBeNull();
+    expect(row?.status).toBe("claimed");
+    const html = renderToStaticMarkup(<SubmissionDetailView {...(await detail(scored))} />);
+    expect(html).not.toContain('name="organizerScore"');
+  });
+
+  it("must-not-fire: a soft-dismissed row refuses an organizer score", async () => {
+    await insertTriage(scored, { dismissedAt: new Date("2026-08-13T00:00:00Z") });
+
+    const result = await post(scored, {
+      intent: "save-organizer-score",
+      organizerScore: "4",
+      organizerNote: "Should not land.",
+      tab: "pending",
+    });
+    expect(result).toMatchObject({ ok: false });
+    expect((result as { error: string }).error).toContain("Run AI triage");
+
+    const row = await ctx.db.query.aiTriage.findFirst({ where: eq(aiTriage.sessionId, scored) });
+    expect(row?.organizerScore).toBeNull();
+    expect(row?.dismissedAt).toBeInstanceOf(Date);
+    const html = renderToStaticMarkup(<SubmissionDetailView {...(await detail(scored))} />);
+    expect(html).not.toContain('name="organizerScore"');
+  });
+
+  it("must-fire: an organizer score still saves on an ordinary ok row (not claimed, not dismissed)", async () => {
+    await insertTriage(scored);
+
+    const result = await post(scored, {
+      intent: "save-organizer-score",
+      organizerScore: "4",
+      organizerNote: "Should land.",
+      tab: "pending",
+    });
+    expect((result as Response).status).toBe(302);
+
+    const row = await ctx.db.query.aiTriage.findFirst({ where: eq(aiTriage.sessionId, scored) });
+    expect(row?.organizerScore).toBe(4);
+  });
+});
+
+describe("only an admin can save an organizer score", () => {
+  beforeEach(() => seed());
+
+  it("must-not-fire: a speaker POSTing save-organizer-score gets 403 and writes nothing", async () => {
+    await insertTriage(scored);
+    const response = await post(
+      scored,
+      {
+        intent: "save-organizer-score",
+        organizerScore: "4",
+        organizerNote: "Speaker-authored attempt.",
+        tab: "pending",
+      },
+      fixture.speakerIds[0],
+    ).catch((thrown: unknown) => thrown);
+
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).status).toBe(403);
+    const row = await ctx.db.query.aiTriage.findFirst({
+      where: eq(aiTriage.sessionId, scored),
+    });
+    expect(row?.organizerScore).toBeNull();
+    expect(row?.organizerNote).toBeNull();
+    expect(row?.organizerScoredById).toBeNull();
+    expect(row?.organizerScoredAt).toBeNull();
+  });
+});
 
 describe("only an admin can spend inference", () => {
   beforeEach(() => seed({ AI: fakeAi(GOOD_REPLY) }));

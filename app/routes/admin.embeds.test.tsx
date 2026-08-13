@@ -89,6 +89,8 @@ describe("admin embeds loader and render", () => {
     expect(html).toContain("https://x.test/embed/frontier-ai-summit-2026/gallery");
     expect(html).toContain("https://x.test/e/frontier-ai-summit-2026/schedule.ics");
     expect([...html.matchAll(/<option value="ical">/g)]).toHaveLength(2);
+    expect([...html.matchAll(/<option value="json">/g)]).toHaveLength(4);
+    expect([...html.matchAll(/<option value="xml">/g)]).toHaveLength(4);
     expect(html.match(/aria-label="Format for Speakers"[\s\S]*?<\/select>/)?.[0]).not.toContain(
       'value="ical"',
     );
@@ -123,6 +125,19 @@ describe("admin embeds loader and render", () => {
     expect(frame).toContain(`/embed/${EVENT_SLUG}/speakers`);
     expect(frame).not.toContain(`/embed/${EVENT_SLUG}/schedule`);
     expect(html).not.toContain('data-testid="embed-preview-schedule"');
+  });
+
+  it("MUST FIRE: Get Code reflects custom CSS, hidden fields, and a JSON link", async () => {
+    const path =
+      "/admin/embeds?w=schedule&format=json&customCss=.card%7Bcolor%3Ared%7D&hide=room";
+    const data = await get(path);
+    expect(data.selectedCustomCss).toBe(".card{color:red}");
+    expect(data.selectedHiddenFields).toEqual(["room"]);
+    const html = markup(data);
+    expect(html).toContain(".card{color:red}");
+    expect(html).toMatch(/aria-label="Hide Room for Schedule"[^>]*checked/);
+    expect(html).toContain("format=json&amp;hide=room");
+    expect(html).toContain("Fetch Frontier AI Summit 2026");
   });
 });
 
@@ -192,9 +207,30 @@ describe("admin embeds actions", () => {
     );
   });
 
+  it("MUST FIRE: saving custom CSS and hide=room persists both", async () => {
+    const result = await save("Styled schedule", {
+      customCss: ".shadow-card { box-shadow: none; }",
+      hide: "room",
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(readSavedEmbeds(await settings())[0]).toMatchObject({
+      customCss: ".shadow-card { box-shadow: none; }",
+      hiddenFields: ["room"],
+    });
+  });
+
+  it("MUST NOT FIRE: style/script breakouts are neutralized before storage", async () => {
+    const poison = "</style><script>alert(1)</script>";
+    expect(await save("Sanitized CSS", { customCss: poison })).toMatchObject({ ok: true });
+    const stored = readSavedEmbeds(await settings())[0].customCss ?? "";
+    expect(stored.toLowerCase()).not.toContain("</style");
+    expect(stored.toLowerCase()).not.toContain("<script");
+    expect(stored).not.toBe(poison);
+  });
+
   it.each([
     [{ accent: "red;}body{display:none" }, "Accent must be a hex colour like #0f766e."],
-    [{ format: "xml" }, "Unknown embed format."],
+    [{ format: "yaml" }, "Unknown embed format."],
     [{ density: "airy" }, "Unknown embed density."],
   ] as Array<[Record<string, string>, string]>)(
     "MUST NOT FIRE: rejects hand-built invalid embed options without writes",
@@ -288,6 +324,8 @@ describe("admin embeds actions", () => {
           format: "iframe",
           density: "full",
           accent: null,
+          customCss: null,
+          hiddenFields: [],
           enabled: true,
           createdAt: Date.now(),
         }),
@@ -326,6 +364,7 @@ describe("admin embeds actions", () => {
       expect(labels).toContain(`Format for ${widget}`);
       expect(labels).toContain(`Density for ${widget}`);
       expect(labels).toContain(`Accent colour for ${widget}`);
+      expect(labels).toContain(`Custom CSS for ${widget}`);
     }
     expect(labels).toContain("Get Code for Schedule");
     expect(labels).toContain("Get Code for Speakers");

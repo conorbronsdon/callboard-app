@@ -7,7 +7,7 @@ import {
   type AggregateReview,
 } from "./aggregate";
 import { tabFor } from "./pipeline";
-import { isSelectCriterion, type Rubric } from "./scoring";
+import { isSelectCriterion, isTextCriterion, type Rubric } from "./scoring";
 
 export interface ScoreExportRound {
   id: string;
@@ -20,7 +20,7 @@ export interface ScoreExportRound {
 export interface ScoreExportReview extends AggregateReview {
   reviewerName?: string | null;
   comment?: string | null;
-  /** Raw per-criterion answers, the source the select-criterion tallies read. */
+  /** Raw per-criterion answers used by dropdown tallies and free-text columns. */
   scores?: Record<string, number | string> | null;
 }
 
@@ -58,6 +58,11 @@ export function buildScoreCsv(
       .filter(isSelectCriterion)
       .map((criterion) => ({ round, criterion })),
   );
+  const textColumns = rounds.flatMap((round) =>
+    round.rubric.criteria
+      .filter(isTextCriterion)
+      .map((criterion) => ({ round, criterion })),
+  );
 
   return csvDocument(
     [
@@ -69,11 +74,12 @@ export function buildScoreCsv(
       "Aggregate score",
       ...rounds.map((round) => round.name),
       ...choiceColumns.map(({ round, criterion }) => `${round.name} — ${criterion.label}`),
+      ...textColumns.map(({ round, criterion }) => `${round.name} — ${criterion.label}`),
       "Reviewer comments",
       // LAST, and named so nobody mistakes them for committee columns. Every
-      // human column — counts, aggregates, per-round averages, the dropdown
-      // distributions and the reviewer comments (CFP-11) — is to the left of
-      // this pair and computed without it.
+      // human column — counts, aggregates, per-round averages, dropdown
+      // distributions, free text and reviewer comments (CFP-11) — is to the
+      // left of this pair and computed without it.
       "AI triage score (advisory)",
       "AI triage recommendation (advisory)",
     ],
@@ -120,6 +126,30 @@ export function buildScoreCsv(
             .map((tally) => `${tally.option} ×${tally.count}`)
             .join("; ");
         }),
+        ...textColumns.map(({ round, criterion }) =>
+          submission.reviews
+            .filter(
+              (review) =>
+                review.roundId === round.id &&
+                review.submittedAt !== null &&
+                review.recusedAt === null &&
+                typeof review.scores?.[criterion.key] === "string" &&
+                String(review.scores[criterion.key]).trim() !== "",
+            )
+            .sort(
+              (left, right) =>
+                (roundOrder.get(left.roundId) ?? rounds.length) -
+                  (roundOrder.get(right.roundId) ?? rounds.length) ||
+                (left.reviewerName || "Unknown reviewer").localeCompare(
+                  right.reviewerName || "Unknown reviewer",
+                ),
+            )
+            .map(
+              (review) =>
+                `${review.reviewerName || "Unknown reviewer"} (${roundNames.get(review.roundId) ?? review.roundId}): ${String(review.scores?.[criterion.key]).trim()}`,
+            )
+            .join(" | "),
+        ),
         comments,
         submission.aiTriage?.score ?? "",
         submission.aiTriage?.recommendation ?? "",

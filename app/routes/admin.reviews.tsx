@@ -32,6 +32,8 @@ import {
   DEFAULT_RUBRIC,
   isRoundBlind,
   isSelectCriterion,
+  isTextCriterion,
+  isUnscoredCriterion,
   parseRubric,
   withRoundBlind,
 } from "~/lib/review/scoring";
@@ -1237,18 +1239,21 @@ export function ReviewOperationsView({
                   </div>
                   {[...round.rubric.criteria, null].map((criterion) => {
                     const isSelect = criterion ? isSelectCriterion(criterion) : false;
+                    const isText = criterion ? isTextCriterion(criterion) : false;
+                    const isUnscored = criterion ? isUnscoredCriterion(criterion) : false;
                     return (
                       <div key={criterion?.key ?? "__new"} className="space-y-1">
                         <div className="grid gap-2 sm:grid-cols-[6rem_1fr_1.5fr_4.5rem_4.5rem_4.5rem_6rem]">
-                          <select name="criterionType" aria-label="Criterion type" defaultValue={isSelect ? "select" : "number"} className={FIELD}>
+                          <select name="criterionType" aria-label="Criterion type" defaultValue={isText ? "text" : isSelect ? "select" : "number"} className={FIELD}>
                             <option value="number">Number</option>
                             <option value="select">Dropdown</option>
+                            <option value="text">Free text</option>
                           </select>
                           <input name="criterionKey" aria-label="Criterion key" defaultValue={criterion?.key ?? ""} className={FIELD} />
                           <input name="criterionLabel" aria-label="Criterion label" defaultValue={criterion?.label ?? ""} className={FIELD} />
-                          <input name="criterionMin" aria-label="Minimum" type="number" defaultValue={isSelect ? 0 : (criterion?.min ?? 1)} className={FIELD_NUM} />
-                          <input name="criterionMax" aria-label="Maximum" type="number" defaultValue={isSelect ? 0 : (criterion?.max ?? 5)} className={FIELD_NUM} />
-                          <input name="criterionWeight" aria-label="Weight" type="number" step="any" defaultValue={isSelect ? 0 : (criterion?.weight ?? 1)} className={FIELD_NUM} />
+                          <input name="criterionMin" aria-label="Minimum" type="number" defaultValue={isUnscored ? 0 : (criterion?.min ?? 1)} className={FIELD_NUM} />
+                          <input name="criterionMax" aria-label="Maximum" type="number" defaultValue={isUnscored ? 0 : (criterion?.max ?? 5)} className={FIELD_NUM} />
+                          <input name="criterionWeight" aria-label="Weight" type="number" step="any" defaultValue={isUnscored ? 0 : (criterion?.weight ?? 1)} className={FIELD_NUM} />
                           <div className="grid gap-1">
                             <textarea name="criterionOptions" aria-label="Dropdown options" rows={1} defaultValue={(criterion?.options ?? []).join("\n")} className={FIELD} placeholder="Accept, Maybe, Reject" />
                             <select name="criterionRemove" aria-label="Row action" defaultValue="" className={FIELD}>
@@ -1257,7 +1262,11 @@ export function ReviewOperationsView({
                             </select>
                           </div>
                         </div>
-                        {isSelect ? (
+                        {isText ? (
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            Minimum, maximum, weight, and options are ignored for free-text criteria.
+                          </p>
+                        ) : isSelect ? (
                           <p className="text-xs text-gray-500 dark:text-gray-400">
                             Minimum, maximum, and weight are ignored for dropdown criteria.
                           </p>
@@ -1265,7 +1274,7 @@ export function ReviewOperationsView({
                       </div>
                     );
                   })}
-                  <p className="text-xs text-gray-500">Keys are stable data identifiers. Choose &quot;Dropdown&quot; and list one option per line (or comma-separated) for a non-numeric criterion — dropdown answers are recorded per review and reported as a distribution, never folded into the numeric average. Use the blank row to add a criterion, or set a row to Remove. Rubrics lock after the first submitted review.</p>
+                  <p className="text-xs text-gray-500">Keys are stable data identifiers. Choose &quot;Dropdown&quot; and list one option per line (or comma-separated) for a non-numeric criterion — dropdown answers are recorded per review and reported as a distribution, never folded into the numeric average. Choose &quot;Free text&quot; for an optional reviewer comment criterion; its range, weight, and options are ignored. Use the blank row to add a criterion, or set a row to Remove. Rubrics lock after the first submitted review.</p>
                   <button disabled={round.submittedReviews > 0} className={GHOST}>Save rubric</button>
                 </form>
 

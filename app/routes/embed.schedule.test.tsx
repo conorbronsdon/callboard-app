@@ -58,6 +58,8 @@ async function saveEmbed(overrides: Partial<SavedEmbed> = {}): Promise<SavedEmbe
     format: "iframe",
     density: "full",
     accent: null,
+    customCss: null,
+    hiddenFields: [],
     enabled: true,
     createdAt: Date.now(),
     ...overrides,
@@ -71,6 +73,43 @@ async function saveEmbed(overrides: Partial<SavedEmbed> = {}): Promise<SavedEmbe
 }
 
 describe("embed schedule loader and SSR", () => {
+  it("MUST FIRE: JSON and XML return structured schedule responses", async () => {
+    const json = (await loader(args("?format=json"))) as unknown;
+    expect(json).toBeInstanceOf(Response);
+    if (!(json instanceof Response)) throw new Error("Expected JSON response");
+    expect(json.headers.get("content-type")).toContain("application/json");
+    const body = (await json.json()) as {
+      sessions: Array<Record<string, unknown>>;
+      total: number;
+    };
+    expect(body.total).toBeGreaterThan(0);
+    expect(body.sessions[0]).toMatchObject({
+      id: expect.any(String),
+      title: expect.any(String),
+      startsAt: expect.any(Number),
+      endsAt: null,
+    });
+    expect(body.sessions[0]).toHaveProperty("room");
+    expect(body.sessions[0]).toHaveProperty("track");
+
+    const xml = (await loader(args("?format=xml"))) as unknown;
+    expect(xml).toBeInstanceOf(Response);
+    if (!(xml instanceof Response)) throw new Error("Expected XML response");
+    expect(xml.headers.get("content-type")).toContain("application/xml");
+    expect(await xml.text()).toMatch(/^<\?xml[^>]+><schedule><session><id>/);
+  });
+
+  it("MUST NOT FIRE: hidden room is absent from JSON and HTML, but visible by default", async () => {
+    const hiddenJson = (await loader(args("?format=json&hide=room"))) as unknown;
+    if (!(hiddenJson instanceof Response)) throw new Error("Expected JSON response");
+    const hiddenBody = (await hiddenJson.json()) as { sessions: Array<Record<string, unknown>> };
+    expect(hiddenBody.sessions[0]).not.toHaveProperty("room");
+    expect(markup(await loader(args()) as LoaderData)).toContain("data-session-room=");
+    expect(markup(await loader(args("?hide=room")) as LoaderData)).not.toContain(
+      "data-session-room=",
+    );
+  });
+
   it("MUST FIRE: an anonymous request renders sessions without site chrome", async () => {
     const requestArgs = args();
     expect(requestArgs.request.headers.has("cookie")).toBe(false);
@@ -154,7 +193,11 @@ describe("embed schedule loader and SSR", () => {
   });
 
   it("MUST FIRE: a saved embed overrides ad-hoc theme and track parameters", async () => {
-    const embed = await saveEmbed({ accent: "#0f766e", density: "compact" });
+    const embed = await saveEmbed({
+      accent: "#0f766e",
+      density: "compact",
+      customCss: ".shadow-card { box-shadow: none; }",
+    });
     const data = await loader(
       args(`?embed=${embed.id}&theme=light&track=Infrastructure`),
     );
@@ -164,8 +207,27 @@ describe("embed schedule loader and SSR", () => {
     expect(data.accent).toBe("#0f766e");
     expect(data.density).toBe("compact");
     expect(html).toContain("cb-theme-dark");
+    expect(html).toContain("<style>.shadow-card { box-shadow: none; }</style>");
     expect(html).toContain(`data-public-session="${fixture.programSessionIds[0]}"`);
     expect(html).not.toContain(`data-public-session="${fixture.programSessionIds[1]}"`);
+  });
+
+  it("MUST FIRE: a saved data format and hidden fields override raw query options", async () => {
+    const embed = await saveEmbed({ format: "json", hiddenFields: ["room"] });
+    const response = (await loader(
+      args(`?embed=${embed.id}&format=xml&hide=track`),
+    )) as unknown;
+    if (!(response instanceof Response)) throw new Error("Expected saved JSON response");
+    expect(response.headers.get("content-type")).toContain("application/json");
+    const body = (await response.json()) as { sessions: Array<Record<string, unknown>> };
+    expect(body.sessions[0]).not.toHaveProperty("room");
+    expect(body.sessions[0]).toHaveProperty("track");
+  });
+
+  it("MUST NOT FIRE: anonymous customCss query parameters never render", async () => {
+    expect(
+      markup(await loader(args("?customCss=body%7Bdisplay%3Anone%7D")) as LoaderData),
+    ).not.toContain("body{display:none}");
   });
 
   it("MUST FIRE: a saved embed keyed by track ID survives a rename", async () => {
@@ -217,5 +279,8 @@ describe("embed schedule loader and SSR", () => {
     const html = markup(await loader(args()));
     expect(html).toContain("The schedule is not published yet.");
     expect(html).not.toContain("data-public-session");
+    const response = (await loader(args("?format=json"))) as unknown;
+    if (!(response instanceof Response)) throw new Error("Expected JSON response");
+    await expect(response.json()).resolves.toMatchObject({ sessions: [], total: 0 });
   });
 });

@@ -16,6 +16,7 @@ import {
   dismissTriage,
   loadTriage,
   planTriageBatch,
+  parseOrganizerScore,
   parseTriageText,
   textFromAiResponse,
   triageBeginMarker,
@@ -48,6 +49,20 @@ const submission: TriageSubmission = {
   trackName: "Agents",
   formatName: "Talk",
 };
+
+describe("parseOrganizerScore", () => {
+  it("must-fire: parses and rounds scores into the organizer's 1-5 scale", () => {
+    expect(parseOrganizerScore("4")).toBe(4);
+    expect(parseOrganizerScore("4.7")).toBe(5);
+  });
+
+  it("must-not-fire: rejects empty, non-numeric, and out-of-range scores", () => {
+    expect(parseOrganizerScore("0")).toBeNull();
+    expect(parseOrganizerScore("6")).toBeNull();
+    expect(parseOrganizerScore("")).toBeNull();
+    expect(parseOrganizerScore("abc")).toBeNull();
+  });
+});
 
 describe("parseTriageText", () => {
   it("parses a clean triage JSON object", () => {

@@ -47,6 +47,8 @@ async function saveEmbed(overrides: Partial<SavedEmbed> = {}) {
     format: "iframe",
     density: "compact",
     accent: "#0f766e",
+    customCss: null,
+    hiddenFields: [],
     enabled: true,
     createdAt: Date.now(),
     ...overrides,
@@ -60,6 +62,38 @@ async function saveEmbed(overrides: Partial<SavedEmbed> = {}) {
 }
 
 describe("agenda embed", () => {
+  it("MUST FIRE: JSON and XML export the agenda session fields", async () => {
+    const json = (await loader(args("?format=json"))) as unknown;
+    expect(json).toBeInstanceOf(Response);
+    if (!(json instanceof Response)) throw new Error("Expected JSON response");
+    expect(json.headers.get("content-type")).toContain("application/json");
+    const body = (await json.json()) as { sessions: Array<Record<string, unknown>> };
+    expect(body.sessions[0]).toMatchObject({
+      id: expect.any(String),
+      title: expect.any(String),
+      startsAt: expect.any(Number),
+      endsAt: null,
+    });
+    expect(body.sessions[0]).toHaveProperty("room");
+    expect(body.sessions[0]).toHaveProperty("track");
+
+    const xml = (await loader(args("?format=xml"))) as unknown;
+    if (!(xml instanceof Response)) throw new Error("Expected XML response");
+    expect(xml.headers.get("content-type")).toContain("application/xml");
+    expect(await xml.text()).toContain("<agenda><session><id>");
+  });
+
+  it("MUST NOT FIRE: hidden track is absent from JSON and HTML, but visible by default", async () => {
+    const hiddenJson = (await loader(args("?format=json&hide=track"))) as unknown;
+    if (!(hiddenJson instanceof Response)) throw new Error("Expected JSON response");
+    const body = (await hiddenJson.json()) as { sessions: Array<Record<string, unknown>> };
+    expect(body.sessions[0]).not.toHaveProperty("track");
+    expect(markup(await loader(args()) as LoaderData)).toContain("data-session-track=");
+    expect(markup(await loader(args("?hide=track")) as LoaderData)).not.toContain(
+      "data-session-track=",
+    );
+  });
+
   it("MUST FIRE: anonymous SSR renders a day-grouped agenda", async () => {
     const data = await loader(args());
     const html = markup(data);
@@ -115,5 +149,14 @@ describe("agenda embed", () => {
     expect(unsafe).not.toContain("data-embed-accent");
     expect(unsafe).not.toContain(poison);
     expect(markup(await loader(args()))).toContain("data-session-speaker");
+  });
+
+  it("renders and exports the zero-row state", async () => {
+    const { sessions } = await import("~/db/schema");
+    await ctx.db.update(sessions).set({ isPublic: false });
+    expect(markup(await loader(args()))).toContain("The schedule is not published yet.");
+    const response = (await loader(args("?format=json"))) as unknown;
+    if (!(response instanceof Response)) throw new Error("Expected JSON response");
+    await expect(response.json()).resolves.toMatchObject({ sessions: [], total: 0 });
   });
 });

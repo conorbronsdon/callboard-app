@@ -15,6 +15,7 @@ import { EmbedShell } from "~/components/embed-shell";
 import { EmbedAgendaByDay } from "~/components/schedule-list";
 import { EMPTY_FILTER, countSessions, filterDays } from "~/lib/agenda/public-schedule";
 import { loadPublicSchedule } from "~/lib/agenda/public-schedule.server";
+import { buildEmbedXml } from "~/lib/embeds";
 import { resolveEmbedOptions } from "~/lib/embeds.server";
 import type { Route } from "./+types/embed.agenda";
 
@@ -23,13 +24,10 @@ export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: event ? `Agenda — ${event}` : "Agenda — callboard" }];
 }
 
-export async function loader({ params, request }: Route.LoaderArgs) {
+async function loaderImpl({ params, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const { theme, track, accent, density } = await resolveEmbedOptions(
-    params.slug,
-    url,
-    "agenda",
-  );
+  const { theme, track, accent, density, format, customCss, hiddenFields } =
+    await resolveEmbedOptions(params.slug, url, "agenda");
   const { event, days } = await loadPublicSchedule(params.slug);
   const resolvedTrack = track
     ? (days
@@ -40,25 +38,62 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const visibleDays = track
     ? filterDays(days, { ...EMPTY_FILTER, track: resolvedTrack }, null)
     : days;
+  const hidden = new Set(hiddenFields);
+  const presentedDays = visibleDays.map((day) => ({
+    ...day,
+    sessions: day.sessions.map((slot) => ({
+      ...slot,
+      roomName: hidden.has("room") ? null : slot.roomName,
+      trackName: hidden.has("track") ? null : slot.trackName,
+      trackColor: hidden.has("track") ? null : slot.trackColor,
+    })),
+  }));
+  const total = countSessions(presentedDays);
+  const sessions = presentedDays.flatMap((day) =>
+    day.sessions.map((slot) => ({
+      id: slot.id,
+      title: slot.title,
+      startsAt: slot.startsAtMs,
+      endsAt: null,
+      ...(!hidden.has("room") ? { room: slot.roomName } : {}),
+      ...(!hidden.has("track") ? { track: slot.trackName } : {}),
+    })),
+  );
+
+  if (format === "json") {
+    return Response.json({ event, sessions, total });
+  }
+  if (format === "xml") {
+    return new Response(buildEmbedXml("agenda", "session", sessions), {
+      headers: { "Content-Type": "application/xml; charset=utf-8" },
+    });
+  }
 
   return {
     event,
-    days: visibleDays,
-    total: countSessions(visibleDays),
+    days: presentedDays,
+    total,
     theme,
     track,
     accent,
     density,
+    customCss,
+    hiddenFields,
   };
 }
 
+export const loader = loaderImpl as (
+  args: Route.LoaderArgs,
+) => Promise<Exclude<Awaited<ReturnType<typeof loaderImpl>>, Response>>;
+
 export default function EmbedAgenda({ loaderData }: Route.ComponentProps) {
-  const { event, days, total, theme, track, accent, density } = loaderData;
+  const { event, days, total, theme, track, accent, density, customCss } = loaderData;
   return (
     <EmbedShell
       theme={theme}
       accent={accent}
       density={density}
+      customCss={customCss}
       eyebrow="Agenda by day"
       title={event.name}
       testId="embed-agenda"

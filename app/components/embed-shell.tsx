@@ -19,6 +19,7 @@ export function EmbedShell({
   theme,
   accent = null,
   density = "full",
+  customCss = null,
   eyebrow,
   title,
   testId,
@@ -28,6 +29,7 @@ export function EmbedShell({
   theme: EmbedTheme;
   accent?: string | null;
   density?: EmbedDensity;
+  customCss?: string | null;
   eyebrow: string;
   title: string;
   testId: string;
@@ -53,6 +55,7 @@ export function EmbedShell({
       data-embed-density={density}
       {...(accent ? { "data-embed-accent": accent } : {})}
     >
+      {customCss ? <style>{customCss}</style> : null}
       <header className="mb-4">
         <p
           className={`${eyebrowClass} tracking-wide`}

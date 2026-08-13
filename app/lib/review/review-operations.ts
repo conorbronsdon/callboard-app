@@ -1,4 +1,4 @@
-import { isSelectCriterion, type Rubric, type RubricCriterion } from "./scoring";
+import { isUnscoredCriterion, type Rubric, type RubricCriterion } from "./scoring";
 
 export type RubricEditorResult =
   | { ok: true; rubric: Rubric }
@@ -78,6 +78,12 @@ export function parseRubricEditor(input: {
       continue;
     }
 
+    if (row.type === "text") {
+      seen.add(key);
+      criteria.push({ key, label, min: 0, max: 0, weight: 0, type: "text" });
+      continue;
+    }
+
     const min = numberAt([row.min], 0);
     const max = numberAt([row.max], 0);
     const weight = numberAt([row.weight], 0);
@@ -93,17 +99,18 @@ export function parseRubricEditor(input: {
   }
 
   /*
-   * At least one scored criterion. Dropdowns are normalised to weight 0, so a
-   * rubric made only of them has a weight total of 0 and can never produce a
-   * score: `reviewAverage` returns null for every review in it, the CSV and the
-   * submissions list show no aggregate, and the round cannot rank anything.
-   * Rejected here rather than accepted and rendered as an empty column later.
+   * At least one scored criterion. Dropdown and free-text criteria are
+   * normalised to weight 0, so a rubric made only of them has a weight total of
+   * 0 and can never produce a score: `reviewAverage` returns null for every
+   * review in it, the CSV and the submissions list show no aggregate, and the
+   * round cannot rank anything. Rejected here rather than accepted and rendered
+   * as an empty column later.
    */
-  if (criteria.every(isSelectCriterion)) {
+  if (criteria.every(isUnscoredCriterion)) {
     return {
       ok: false,
       error:
-        "A rubric needs at least one scored criterion — dropdowns are recorded but not scored, so an all-dropdown rubric can never produce an aggregate.",
+        "A rubric needs at least one scored criterion — dropdown and free-text answers are recorded but not scored, so an all-unscored rubric can never produce an aggregate.",
     };
   }
 

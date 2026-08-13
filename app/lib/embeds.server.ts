@@ -4,11 +4,15 @@ import { getDb } from "~/db/client.server";
 import { events, tracks } from "~/db/schema";
 import {
   parseAccent,
+  parseCustomCss,
   parseDensity,
+  parseFormat,
+  parseHiddenFields,
   parseTheme,
   readSavedEmbeds,
   resolveTrackRef,
   type EmbedDensity,
+  type EmbedFormat,
   type EmbedTheme,
   type EmbedTrackRef,
   type EmbedWidgetId,
@@ -48,6 +52,9 @@ export interface ResolvedEmbedOptions {
   track: string | null;
   accent: string | null;
   density: EmbedDensity;
+  format: EmbedFormat;
+  customCss: string | null;
+  hiddenFields: string[];
 }
 
 export async function resolveEmbedOptions(
@@ -74,6 +81,9 @@ export async function resolveEmbedOptions(
         : null,
       accent: saved.accent,
       density: saved.density,
+      format: saved.format,
+      customCss: parseCustomCss(saved.customCss),
+      hiddenFields: parseHiddenFields(widget, saved.hiddenFields),
     };
   }
 
@@ -82,5 +92,10 @@ export async function resolveEmbedOptions(
     track: url.searchParams.get("track")?.trim() || null,
     accent: parseAccent(url.searchParams.get("accent")),
     density: parseDensity(url.searchParams.get("density")),
+    format: parseFormat(url.searchParams.get("format")),
+    // Custom CSS is trusted only after an authenticated organizer saves it;
+    // never accept free-form CSS from an anonymous public query parameter.
+    customCss: null,
+    hiddenFields: parseHiddenFields(widget, url.searchParams.getAll("hide")),
   };
 }
