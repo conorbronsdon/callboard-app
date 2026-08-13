@@ -27,6 +27,7 @@ import {
   AI_TRIAGE_BULK_WINDOW_MS,
   AI_TRIAGE_CLAIM_STALE_MS,
   AI_TRIAGE_MODEL,
+  dismissTriage,
 } from "~/lib/review/ai-triage.server";
 import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
@@ -215,6 +216,46 @@ describe("bulk triage progress", () => {
     expect(replay instanceof Response).toBe(true);
     expect(calls.length).toBe(6);
     expect((await ctx.db.select().from(aiTriage)).length).toBe(6);
+  });
+
+  it("MUST FIRE: bulk skips a dismissed row but still triages a genuinely pending row", async () => {
+    await seedPending(2);
+    const dismissedId = "ee000000-e0e0-4e0e-8e0e-e0e0e0e0e0e0";
+    const pendingId = "ee010000-e0e0-4e0e-8e0e-e0e0e0e0e0e0";
+    await ctx.db.insert(aiTriage).values({
+      id: "edededed-eded-4ded-8ded-edededededed",
+      eventId: fixture.eventId,
+      sessionId: dismissedId,
+      score: 2,
+      recommendation: "reject",
+      reasoning: "The first pass was dismissed.",
+      model: "seeded-test-model",
+      status: "ok",
+    });
+    await dismissTriage(ctx.db, { eventId: fixture.eventId, sessionId: dismissedId });
+    const dismissedBefore = await ctx.db.query.aiTriage.findFirst({
+      where: eq(aiTriage.sessionId, dismissedId),
+    });
+    expect(dismissedBefore?.dismissedAt).toBeInstanceOf(Date);
+
+    const result = await post({});
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(302);
+    expect(calls).toHaveLength(1);
+    const dismissedAfter = await ctx.db.query.aiTriage.findFirst({
+      where: eq(aiTriage.sessionId, dismissedId),
+    });
+    expect(dismissedAfter).toEqual(dismissedBefore);
+    const newlyTriaged = await ctx.db.query.aiTriage.findFirst({
+      where: eq(aiTriage.sessionId, pendingId),
+    });
+    expect(newlyTriaged).toMatchObject({
+      sessionId: pendingId,
+      score: 4,
+      recommendation: "accept",
+      dismissedAt: null,
+    });
   });
 
   it("MUST NOT FIRE: a client that lies about its progress cannot extend the run", async () => {

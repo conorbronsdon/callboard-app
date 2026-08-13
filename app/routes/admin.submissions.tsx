@@ -374,12 +374,12 @@ export async function loader({ request }: Route.LoaderArgs) {
      * it by their scores.
      */
     rows.sort((left, right) => {
-      const leftGap = left.disagreement.gap;
-      const rightGap = right.disagreement.gap;
-      if (leftGap === null && rightGap === null) return tiebreak(left, right);
-      if (leftGap === null) return 1;
-      if (rightGap === null) return -1;
-      return rightGap - leftGap || tiebreak(left, right);
+      const leftSeverity = left.disagreement.severity;
+      const rightSeverity = right.disagreement.severity;
+      if (leftSeverity === null && rightSeverity === null) return tiebreak(left, right);
+      if (leftSeverity === null) return 1;
+      if (rightSeverity === null) return -1;
+      return rightSeverity - leftSeverity || tiebreak(left, right);
     });
   } else if (sort) {
     rows.sort((left, right) => {

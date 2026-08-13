@@ -141,6 +141,9 @@ a static request header named `x-access-token` with the scoped Callboard key.
 Static request-header authentication is a beta hosted-Claude feature and the
 credential is shared at the organization level; if that option is unavailable,
 use Claude Code or configure the Worker's optional single-tenant fallback key.
+Any caller that sends no credential inherits the fallback key's full scope, so
+that scope is the deployment's ambient permission level for anyone who can
+reach the Worker URL.
 
 ## Raw streamable-HTTP exchange
 
@@ -187,7 +190,10 @@ npx wrangler deploy --config wrangler.mcp.jsonc
 
 Normally every MCP client supplies its own event-scoped key. A single-tenant
 deployment may instead set a fallback secret; request headers still take
-precedence:
+precedence. The Worker has no other gate in front of it, so a headerless caller
+gets this key's full scope. Mint the fallback key in `/admin/apikeys` with the
+**Read only** preset (`read:events`, `read:sessions`, `read:contacts`, and
+`read:metadata`, with no `write:sessions`); do not use a write-scoped fallback.
 
 ```sh
 npx wrangler secret put CALLBOARD_API_KEY --config wrangler.mcp.jsonc

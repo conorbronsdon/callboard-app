@@ -72,6 +72,20 @@ describe("parseTriageText", () => {
     expect(result.opinion.recommendation).toBe("accept");
   });
 
+  it("MUST FIRE: parses JSON preceded by chatty prose without a fence", () => {
+    const result = parseTriageText(
+      'Sure! Here is my answer: {"score": 4, "recommendation": "accept", "reasoning": "Specific and practical."}',
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("Expected a parsed opinion");
+    expect(result.opinion).toEqual({
+      score: 4,
+      recommendation: "accept",
+      reasoning: "Specific and practical.",
+    });
+  });
+
   it("rounds a fractional score", () => {
     const result = parseTriageText(
       '{"score": 3.4, "recommendation": "maybe", "reasoning": "Promising but incomplete."}',
@@ -517,7 +531,7 @@ describe("AI triage persistence and bulk execution", () => {
     expect(rows.length).toBe(0);
   });
 
-  it("dismisses only the requested session's triage row", async () => {
+  it("MUST FIRE: loadTriage hides a soft-dismissed row while the physical row survives", async () => {
     const ai = fakeAi({
       response: '{"score":4,"recommendation":"maybe","reasoning":"Worth discussion."}',
     });
@@ -536,9 +550,12 @@ describe("AI triage persistence and bulk execution", () => {
       sessionId: fixture.abstractIds[0],
     });
     const rows = await ctx.db.select().from(aiTriage);
+    const dismissed = rows.find((row) => row.sessionId === fixture.abstractIds[0]);
+    const visible = rows.find((row) => row.sessionId === fixture.abstractIds[1]);
 
-    expect(rows.length).toBe(1);
-    expect(rows[0].sessionId).toBe(fixture.abstractIds[1]);
+    expect(rows).toHaveLength(2);
+    expect(dismissed?.dismissedAt).toBeInstanceOf(Date);
+    expect(visible?.dismissedAt).toBeNull();
     expect(
       await loadTriage(ctx.db, {
         eventId: fixture.eventId,

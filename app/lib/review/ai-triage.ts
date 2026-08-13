@@ -377,9 +377,11 @@ export function textFromAiResponse(value: unknown): string {
 }
 
 /**
- * Defensive by construction: every exit is a value, never a throw. A model that
- * wraps its JSON in a ```json fence, prefixes it with "Sure!", or invents a
- * sixth recommendation all land in the `{ ok: false }` branch with the raw text
+ * Defensive by construction: every exit is a value, never a throw. The parser
+ * extracts the text from the first `{` through the last `}`, so surrounding
+ * prose, chat framing, and code fences are tolerated when that slice is valid
+ * JSON. Malformed JSON, a non-numeric or out-of-range score, an unrecognized
+ * recommendation, or empty reasoning returns `{ ok: false }` with the raw text
  * preserved for the card to display.
  */
 export function parseTriageText(text: string): TriageParse {

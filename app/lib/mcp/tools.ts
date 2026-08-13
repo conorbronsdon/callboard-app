@@ -48,6 +48,14 @@ export interface ToolDefinition {
   ) => Promise<ToolResult>;
 }
 
+/**
+ * `readOnlyHint`: the tool makes no state change.
+ * `destructiveHint`: the tool may destroy or overwrite existing state.
+ * `openWorldHint`: the tool touches an open-ended external domain.
+ * `idempotentHint`: repeating the same call has no additional effect.
+ * Reads query the live service; `capture_abstract` creates a new remote row, so
+ * it is non-read-only, non-destructive, open-world, and non-idempotent.
+ */
 const READ_ANNOTATIONS: ToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -58,7 +66,7 @@ const READ_ANNOTATIONS: ToolAnnotations = {
 const WRITE_ANNOTATIONS: ToolAnnotations = {
   readOnlyHint: false,
   destructiveHint: false,
-  openWorldHint: false,
+  openWorldHint: true,
   idempotentHint: false,
 };
 

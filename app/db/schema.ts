@@ -912,6 +912,7 @@ export const aiTriage = sqliteTable(
     requestedById: text("requested_by_id").references(() => people.id, {
       onDelete: "set null",
     }),
+    dismissedAt: integer("dismissed_at", { mode: "timestamp_ms" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

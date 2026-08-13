@@ -251,6 +251,34 @@ describe("multi-round rubric scoring", () => {
     expect(html).toContain("Recommendation: Accept 1 · Maybe 0 · Reject 0 — most common: Accept");
   });
 
+  it("must fire: an all-dropdown round preserves its submitted-review count without an average", async () => {
+    const target = fixture.abstractIds[3];
+    await ctx.db
+      .update(reviewRounds)
+      .set({ rubric: { criteria: [SELECT_CRITERION] } })
+      .where(eq(reviewRounds.id, ROUND_ONE));
+    await post(target, {
+      intent: "save-review",
+      roundId: ROUND_ONE,
+      "score-recommendation": "Accept",
+    });
+
+    const data = await load(target);
+    expect(data.rounds[0].aggregate).toEqual({ reviewerCount: 1, averageScore: null });
+    const html = renderToStaticMarkup(<SubmissionDetailView {...data} />);
+    expect(html).toContain("1 submitted");
+    expect(html).not.toContain("no submitted reviews");
+  });
+
+  it("must NOT fire: a round with zero submitted reviews still says so", async () => {
+    const html = renderToStaticMarkup(
+      <SubmissionDetailView {...(await load(fixture.abstractIds[3]))} />,
+    );
+
+    expect(html).toContain("no submitted reviews");
+    expect(html).not.toContain("1 submitted");
+  });
+
   it("must NOT fire: a dropdown criterion cannot change the rendered numeric average", async () => {
     const target = fixture.abstractIds[3];
     await post(target, {

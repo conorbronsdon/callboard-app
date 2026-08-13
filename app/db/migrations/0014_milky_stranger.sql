@@ -1,0 +1,1 @@
+ALTER TABLE `ai_triage` ADD `dismissed_at` integer;

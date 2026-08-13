@@ -300,6 +300,7 @@ describe("submission aggregate scores", () => {
  * number below is hand-computed against those two constants.
  */
 const SECOND_REVIEWER = "89898989-8989-4989-8989-898989898989";
+const WIDE_ROUND = "8b8b8b8b-8b8b-4b8b-8b8b-8b8b8b8b8b8b";
 
 describe("contested submissions", () => {
   /** A second genuine review of HIGH_TITLE, `totalScore` points apart from 15. */
@@ -412,6 +413,50 @@ describe("contested submissions", () => {
     expect(html).toContain(
       listUrl("pending", null, "", "contested-desc").replace(/&/g, "&amp;"),
     );
+  });
+
+  it("MUST FIRE: contested sort ranks severity above a larger raw gap from a wider rubric", async () => {
+    await addSecondReview(6);
+    await ctx.db.insert(reviewRounds).values({
+      id: WIDE_ROUND,
+      eventId: fixture.eventId,
+      name: "Wide-scale review",
+      ordinal: 2,
+      rubric: {
+        criteria: [{ key: "confidence", label: "Confidence", min: 0, max: 100, weight: 1 }],
+      },
+    });
+    await ctx.db.insert(reviews).values([
+      {
+        id: "8c8c8c8c-8c8c-4c8c-8c8c-8c8c8c8c8c8c",
+        roundId: WIDE_ROUND,
+        sessionId: fixture.abstractIds[4],
+        reviewerId: fixture.adminId,
+        totalScore: 80,
+        submittedAt: new Date("2026-08-12T12:00:00Z"),
+      },
+      {
+        id: "8d8d8d8d-8d8d-4d8d-8d8d-8d8d8d8d8d8d",
+        roundId: WIDE_ROUND,
+        sessionId: fixture.abstractIds[4],
+        reviewerId: RECUSED_REVIEWER,
+        totalScore: 60,
+        submittedAt: new Date("2026-08-12T12:00:00Z"),
+      },
+    ]);
+
+    const data = await load(
+      "https://x.test/admin/submissions?tab=pending&sort=contested-desc",
+    );
+    const high = data.rows.find((row) => row.title === HIGH_TITLE);
+    const low = data.rows.find((row) => row.title === LOW_TITLE);
+
+    expect(high?.disagreement).toMatchObject({ gap: 3, severity: 0.75 });
+    expect(low?.disagreement).toMatchObject({ gap: 20, severity: 0.2 });
+    expect(high?.contested).toBe(true);
+    expect(low?.contested).toBe(false);
+    expect(data.rows[0].title).toBe(HIGH_TITLE);
+    expect(data.rows.indexOf(high!)).toBeLessThan(data.rows.indexOf(low!));
   });
 
   it("MUST NOT FIRE: the contested sort changes no status and gates nothing", async () => {

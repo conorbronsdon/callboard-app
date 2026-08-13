@@ -29,7 +29,7 @@
  * typechecked and BUILT clean and only failed in `vite dev`, as a full-screen
  * error overlay that ate the e2e run. Callers still import from one place.
  */
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
 
 import type { DB } from "~/db/client.server";
 import { aiTriage, reviewRounds } from "~/db/schema";
@@ -169,6 +169,7 @@ export async function storeTriageOutcome(
           reasoning: outcome.opinion.reasoning,
           model: outcome.model,
           status: "ok" as const,
+          dismissedAt: null,
         }
       : {
           score: null,
@@ -176,6 +177,7 @@ export async function storeTriageOutcome(
           reasoning: outcome.raw.slice(0, 1_200),
           model: outcome.model,
           status: "failed" as const,
+          dismissedAt: null,
         };
 
   await db
@@ -193,13 +195,47 @@ export async function storeTriageOutcome(
     });
 }
 
+/**
+ * Soft-dismiss: sets `dismissedAt`, but never on a row an in-flight bulk claim
+ * currently owns (`status = "claimed"`). `storeTriageOutcome`'s upsert clears
+ * `dismissedAt` on every completion, so dismissing a claimed row here would be
+ * silently undone the moment that claim resolves — the invariant lives in the
+ * UPDATE's WHERE clause rather than an earlier read, the same style
+ * `claimTriageTargets` uses for the same table. Returns `{ ok: false }` only
+ * when a claimed row genuinely blocked the update; dismissing a row that does
+ * not exist at all (already gone, or never triaged) is a harmless no-op —
+ * matching the prior hard-delete's behavior on a missing row — so it still
+ * reports `{ ok: true }`.
+ */
 export async function dismissTriage(
   db: DB,
   args: { eventId: string; sessionId: string },
-): Promise<void> {
-  await db
-    .delete(aiTriage)
-    .where(and(eq(aiTriage.eventId, args.eventId), eq(aiTriage.sessionId, args.sessionId)));
+): Promise<{ ok: boolean }> {
+  const updated = await db
+    .update(aiTriage)
+    .set({ dismissedAt: new Date() })
+    .where(
+      and(
+        eq(aiTriage.eventId, args.eventId),
+        eq(aiTriage.sessionId, args.sessionId),
+        ne(aiTriage.status, "claimed"),
+      ),
+    )
+    .returning({ sessionId: aiTriage.sessionId });
+  if (updated.length > 0) return { ok: true };
+
+  const [claimed] = await db
+    .select({ sessionId: aiTriage.sessionId })
+    .from(aiTriage)
+    .where(
+      and(
+        eq(aiTriage.eventId, args.eventId),
+        eq(aiTriage.sessionId, args.sessionId),
+        eq(aiTriage.status, "claimed"),
+      ),
+    )
+    .limit(1);
+  return { ok: !claimed };
 }
 
 /** One submission, end to end. Returns the outcome so a caller can count it. */
@@ -430,7 +466,13 @@ export async function loadTriage(
       createdAt: aiTriage.createdAt,
     })
     .from(aiTriage)
-    .where(and(eq(aiTriage.eventId, args.eventId), eq(aiTriage.sessionId, args.sessionId)))
+    .where(
+      and(
+        eq(aiTriage.eventId, args.eventId),
+        eq(aiTriage.sessionId, args.sessionId),
+        isNull(aiTriage.dismissedAt),
+      ),
+    )
     .limit(1);
 
   const row = rows[0];

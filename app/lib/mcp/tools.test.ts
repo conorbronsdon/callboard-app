@@ -265,6 +265,15 @@ describe("happy-path wire contracts", () => {
     });
   });
 
+  it("MUST FIRE: capture_abstract annotations describe a non-destructive open-world write", () => {
+    expect(tool("capture_abstract").annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: true,
+      idempotentHint: false,
+    });
+  });
+
   it("get_openapi calls the unauthenticated document and returns a compact index", async () => {
     const document = {
       openapi: "3.1.0",

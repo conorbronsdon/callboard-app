@@ -112,6 +112,11 @@ function buildHandler(config: ResolvedConfig): StatelessMcpHandler {
 
 function handlerFor(config: ResolvedConfig): StatelessMcpHandler {
   if (!cachedHandler) {
+    if (config.fallbackApiKey) {
+      console.warn(
+        "Callboard MCP fallback API key is configured; headerless callers will use it. Use a read-only key unless broader ambient access is intentional.",
+      );
+    }
     cachedHandler = { ...config, handler: buildHandler(config) };
   } else if (
     cachedHandler.origin !== config.origin ||
