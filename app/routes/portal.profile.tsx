@@ -29,7 +29,12 @@ import {
 import { getDb } from "~/db/client.server";
 import { people } from "~/db/schema";
 import { renderMarkdown } from "~/lib/markdown";
-import { ACCEPT_ATTRIBUTE, formatBytes, uploadConstraintText } from "~/lib/portal-uploads";
+import {
+  ACCEPT_ATTRIBUTE,
+  formatBytes,
+  portalHeadshotHref,
+  uploadConstraintText,
+} from "~/lib/portal-uploads";
 import { FileVersions } from "~/components/file-history";
 import { buildLibrary, type LibraryChain, type LibraryRow } from "~/lib/files-library";
 import { RATE_LIMIT_POLICIES, enforceRateLimit } from "~/lib/rate-limit.server";
@@ -254,7 +259,7 @@ export default function PortalProfile({ loaderData, actionData }: Route.Componen
           name={person.fullName}
           email={person.email}
           size="lg"
-          src={person.hasHeadshot ? `/portal/headshot/${person.id}` : null}
+          src={headshot ? portalHeadshotHref(person.id, headshot.id) : null}
         />
         <div className="min-w-0">
           <h1 className="text-xl font-semibold">{person.fullName ?? person.email}</h1>
@@ -272,7 +277,7 @@ export default function PortalProfile({ loaderData, actionData }: Route.Componen
             name={person.fullName}
             email={person.email}
             size="lg"
-            src={person.hasHeadshot ? `/portal/headshot/${person.id}` : null}
+            src={headshot ? portalHeadshotHref(person.id, headshot.id) : null}
           />
           <Form
             method="post"

@@ -46,7 +46,7 @@ import { currentEvent } from "~/lib/event.server";
 import { getMailer } from "~/lib/mail/mailer.server";
 import { storeUpload } from "~/lib/portal/uploads.server";
 import { readPortalSchema } from "~/lib/portal-form";
-import { ACCEPT_ATTRIBUTE, formatBytes } from "~/lib/portal-uploads";
+import { ACCEPT_ATTRIBUTE, formatBytes, portalHeadshotHref } from "~/lib/portal-uploads";
 import { RATE_LIMIT_POLICIES, enforceRateLimit } from "~/lib/rate-limit.server";
 import { socialHref } from "~/lib/social-href";
 import { speakerStatusBadge } from "~/lib/speakers/roster";
@@ -657,7 +657,7 @@ export function SpeakerView({
             name={speaker.name}
             email={speaker.email}
             size="lg"
-            src={headshot ? `/portal/headshot/${speaker.id}` : null}
+            src={headshot ? portalHeadshotHref(speaker.id, headshot.uploadId) : null}
           />
           <div className="min-w-0 flex-1 space-y-3">
             {headshot ? (

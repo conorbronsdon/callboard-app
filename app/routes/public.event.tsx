@@ -15,6 +15,7 @@ import { eyebrowClass, LaneStub, linkClass, Shell } from "~/components/shell";
 import { getDb } from "~/db/client.server";
 import { events, forms, sessions } from "~/db/schema";
 import { formatDateRange } from "~/lib/dates";
+import { organizersEntryHref } from "~/lib/env.server";
 import type { Route } from "./+types/public.event";
 
 export function meta({ loaderData }: Route.MetaArgs) {
@@ -78,6 +79,7 @@ export async function loader({ params }: Route.LoaderArgs) {
       dateRange: formatDateRange(event.startsOn, event.endsOn, timeZone),
     },
     publishedSessions: Number(publishedRows[0]?.n ?? 0),
+    organizersHref: organizersEntryHref(),
     forms: openForms
       .filter((form) => form.status === "open")
       .map((form) => ({
@@ -90,7 +92,7 @@ export async function loader({ params }: Route.LoaderArgs) {
 }
 
 export default function PublicEvent({ loaderData }: Route.ComponentProps) {
-  const { event, forms: openForms, publishedSessions } = loaderData;
+  const { event, forms: openForms, publishedSessions, organizersHref } = loaderData;
 
   /* Dates · location · programme size — only the facts that exist. */
   const facts = [
@@ -110,6 +112,7 @@ export default function PublicEvent({ loaderData }: Route.ComponentProps) {
         { to: `/e/${event.slug}/schedule`, label: "Schedule" },
         { to: `/e/${event.slug}/speakers`, label: "Speakers" },
       ]}
+      organizersHref={organizersHref}
     >
       <div className="space-y-6">
         <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-card sm:p-6 dark:border-gray-800 dark:bg-gray-900">

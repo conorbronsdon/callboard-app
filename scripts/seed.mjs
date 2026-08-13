@@ -1530,7 +1530,7 @@ statements.push(
     [
       // Legitimate embeds — these MUST survive sanitising.
       '<h3>Venue walkthrough</h3>',
-      '<iframe width="560" height="315" src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="Venue walkthrough" frameborder="0" allowfullscreen></iframe>',
+      '<iframe width="560" height="315" src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&mute=1" title="Venue walkthrough" frameborder="0" allowfullscreen></iframe>',
       '<h3>Load-in door</h3>',
       '<iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3" width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>',
       '<p>Questions? <a href="https://example.com/av-guide" target="_blank">Full AV guide</a>.</p>',

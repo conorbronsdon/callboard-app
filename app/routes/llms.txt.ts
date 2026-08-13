@@ -93,7 +93,7 @@ ${
   read:events, read:sessions, write:sessions, read:contacts, read:metadata,
   write:metadata — and a request missing the required scope is rejected.
 - Coverage: events; sessions (list, search, create, bulk create, get, update,
-  restore); speakers (list, search, get, update); and the shared metadata
+  restore); speakers (list, search, get — read-only, no update); and the shared metadata
   families tracks, rooms, tags, formats, and levels.
 ${
   isDemoMode()

@@ -180,6 +180,34 @@ export function numberVersions<T extends { id: string; version: number; createdA
   }));
 }
 
+/**
+ * Auth-gated headshot URL for portal/admin rendering
+ * (`/portal/headshot/:personId`, `app/routes.ts`).
+ *
+ * `version` — the CURRENT headshot's `uploads.id` — rides along as a query
+ * string rather than a path segment. The route itself stays keyed on
+ * `personId` alone and always serves whatever `people.headshot_key` currently
+ * points at (`portal.headshot.tsx`), so the query string is never read or
+ * checked server-side; its only job is client-side. An `<img src>` that is
+ * BYTE-IDENTICAL across a re-render is never touched by React's reconciler,
+ * so the DOM node's `src` attribute never changes and the browser has no
+ * reason to issue a new request for it — it keeps painting whatever it
+ * already decoded, independent of any Cache-Control header. That was the
+ * actual bug: `/portal/headshot/${personId}` names WHO, never WHICH photo, so
+ * a replace rendered the same string as the upload it replaced. Because
+ * `storeUpload` always inserts a new `uploads` row on replace (never reuses
+ * an id — `app/lib/portal/uploads.server.ts`), a fresh `version` here
+ * guarantees a different string every time, which is what actually forces
+ * the refetch. Mirrors `publicSpeakerPhotoHref`
+ * (`app/lib/public-speakers.server.ts`), which versions the same way for the
+ * same reason on the public route — that one puts the id in the PATH because
+ * it also has to be `immutable`-cacheable and content-addressed for an
+ * anonymous visitor; this one does not, so a query string is enough.
+ */
+export function portalHeadshotHref(personId: string, version: string): string {
+  return `/portal/headshot/${personId}?v=${version}`;
+}
+
 /** Human-readable file size for the UI. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

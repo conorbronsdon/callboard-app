@@ -5,7 +5,7 @@
  *   npm run dev -- --port 5194 --strictPort   # in one terminal
  *   node scripts/ws4-agenda-check.mjs http://localhost:5194
  *
- * Covers the lane's done-when (PLAN.md §4 WS4):
+ * Covers the agenda lane's done-when:
  *   1. all SIX views render against seed data — List/Day/Week/Track/Room/Conflicts
  *   2. the zero state renders (every session unscheduled, nothing published)
  *   3. JS-off scheduling ROUND-TRIPS: POST moves a session, a fresh GET shows it

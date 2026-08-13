@@ -191,7 +191,7 @@ npx wrangler deploy --config wrangler.mcp.jsonc
 Normally every MCP client supplies its own event-scoped key. A single-tenant
 deployment may instead set a fallback secret; request headers still take
 precedence. The Worker has no other gate in front of it, so a headerless caller
-gets this key's full scope. Mint the fallback key in `/admin/apikeys` with the
+gets this key's full scope. Mint the fallback key in `/admin/api-keys` with the
 **Read only** preset (`read:events`, `read:sessions`, `read:contacts`, and
 `read:metadata`, with no `write:sessions`); do not use a write-scoped fallback.
 

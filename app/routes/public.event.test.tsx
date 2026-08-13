@@ -95,6 +95,38 @@ async function markupFor(data: LoaderData): Promise<string> {
   return renderToStaticMarkup(<Stub initialEntries={[`/e/${EVENT_SLUG}`]} />);
 }
 
+/** The doorway link's rendered `<a>`, if any — same extraction as shell.test.tsx. */
+function organizersLink(markup: string): { attrs: string; text: string } | null {
+  const match = /<a\b([^>]*data-testid="public-organizers-link"[^>]*)>([\s\S]*?)<\/a>/.exec(
+    markup,
+  );
+  if (!match) return null;
+  return { attrs: match[1], text: match[2].replace(/<[^>]*>/g, "").trim() };
+}
+
+describe("the Organizers doorway link", () => {
+  it("MUST FIRE: pinned in the public event nav, pointing at /admin outside demo mode", async () => {
+    const markup = await markupFor(await load());
+    const link = organizersLink(markup);
+    expect(link).not.toBeNull();
+    expect(link!.text).toBe("Organizers →");
+    expect(link!.attrs).toContain('href="/admin"');
+  });
+
+  it("MUST FIRE: switches target to /demo on a live disposable demo deployment", async () => {
+    ctx.close();
+    ctx = installTestDb({
+      DEPLOYMENT_PROFILE: "demo",
+      DEMO_MODE: "1",
+      DEMO_EXPIRES_AT: "2099-08-12T05:00:00.000Z",
+    });
+    await seedDemoFixture(ctx.db);
+
+    const markup = await markupFor(await load());
+    expect(organizersLink(markup)!.attrs).toContain('href="/demo"');
+  });
+});
+
 describe("open-call CTAs", () => {
   it("MUST FIRE: two calls with the same target get distinct accessible names", async () => {
     await addSameTargetCall();

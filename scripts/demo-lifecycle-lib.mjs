@@ -1,6 +1,10 @@
 import { basename } from "node:path";
 
-const MAX_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+// Three weeks, not seven days: the hackathon's judging and feedback window
+// runs well past the submission deadline, and a demo that expires mid-judging
+// is the failure this guard exists to prevent, inverted. The leash stays —
+// a disposable demo still cannot be minted immortal.
+const MAX_LIFETIME_MS = 21 * 24 * 60 * 60 * 1000;
 const DISPOSABLE_PREFIX = "callboard-disposable-demo";
 const SAFETY_CRITICAL_KEYS = [
   "name",
@@ -250,7 +254,7 @@ export function inspectDemoConfig({
     throw new Error("DEMO_EXPIRES_AT has passed; do not reset or redeploy an expired demo.");
   }
   if (expiresAt - now > MAX_LIFETIME_MS) {
-    throw new Error("Disposable demo expiry must be within seven days.");
+    throw new Error("Disposable demo expiry must be within 21 days.");
   }
 
   return {

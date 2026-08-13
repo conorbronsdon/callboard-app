@@ -98,7 +98,7 @@ ${formLines}
   /v1/openapi.json.
 - /v1/event/${event.id}/sessions — list, search, create, bulk create, get,
   update, restore
-- /v1/event/${event.id}/speakers — list, search, get, update
+- /v1/event/${event.id}/speakers — list, search, get (read-only, no update)
 - /v1/event/${event.id}/tracks — one of the shared metadata families; the
   same event-scoped pattern also covers rooms, tags, formats, and levels
 ${

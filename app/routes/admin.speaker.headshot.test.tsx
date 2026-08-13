@@ -113,6 +113,35 @@ describe("MUST FIRE — the organizer sees the headshot", () => {
   });
 });
 
+/**
+ * Conor's live-demo report reproduced on the ADMIN record too: an organizer
+ * replacing a headshot from `/admin/speakers/:id` hits the same
+ * `/portal/headshot/:personId` preview `portal.profile.tsx` does, with the
+ * same defect — the URL names the PERSON, never WHICH photo, so it is
+ * byte-identical before and after a replace and a browser that already
+ * painted the old preview never refetches. `admin.speaker.headshot-refresh.
+ * test.tsx` does not exist as a separate file on purpose: this one already
+ * owns every fixture and helper this needs.
+ */
+describe("MUST FIRE — replacing a headshot changes the preview URL", () => {
+  it("the admin preview's src differs before and after a replace", async () => {
+    const speaker = fixture.speakerIds[0];
+
+    await uploadAs(speaker, fixture.adminId);
+    const firstSrc = /src="(\/portal\/headshot\/[^"]*)"/.exec(await markup(speaker))?.[1];
+    expect(firstSrc).toBeDefined();
+
+    await uploadAs(speaker, fixture.adminId);
+    const secondSrc = /src="(\/portal\/headshot\/[^"]*)"/.exec(await markup(speaker))?.[1];
+    expect(secondSrc).toBeDefined();
+
+    // The bug: the unfixed markup renders `/portal/headshot/${speaker}` both
+    // times with nothing to tell the two photos apart.
+    expect(secondSrc).not.toBe(firstSrc);
+    expect(secondSrc).toContain(`/portal/headshot/${speaker}`);
+  });
+});
+
 describe("MUST FIRE — the organizer publishes and unpublishes", () => {
   it("flips photo_publishable in both directions and says which state it is in", async () => {
     const speaker = fixture.speakerIds[0];

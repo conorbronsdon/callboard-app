@@ -5,6 +5,7 @@ import { linkClass, Shell, TrackChip } from "~/components/shell";
 import { SpeakerMonogram } from "~/components/speaker-monogram";
 import { getDb } from "~/db/client.server";
 import { dayKeyOf, formatDayLabel, formatRangeLabel } from "~/lib/agenda/schedule";
+import { organizersEntryHref } from "~/lib/env.server";
 import {
   getPublicSpeakerEvent,
   getPublicSpeakerProfile,
@@ -87,11 +88,12 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       view: fromGallery ? ("gallery" as const) : ("list" as const),
       q: backQuery,
     },
+    organizersHref: organizersEntryHref(),
   };
 }
 
 export default function PublicSpeaker({ loaderData }: Route.ComponentProps) {
-  const { event, speaker, sessions, back } = loaderData;
+  const { event, speaker, sessions, back, organizersHref } = loaderData;
 
   return (
     <Shell
@@ -103,6 +105,7 @@ export default function PublicSpeaker({ loaderData }: Route.ComponentProps) {
         { to: `/e/${event.slug}/schedule`, label: "Schedule" },
         { to: `/e/${event.slug}/speakers`, label: "Speakers" },
       ]}
+      organizersHref={organizersHref}
     >
       <div data-speaker-detail={speaker.id} className="max-w-3xl space-y-6">
         <Link

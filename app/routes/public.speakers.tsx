@@ -5,6 +5,7 @@ import { buttonClass } from "~/components/portal-ui";
 import { eyebrowClass, linkClass, Shell } from "~/components/shell";
 import { SpeakerMonogram } from "~/components/speaker-monogram";
 import { getDb } from "~/db/client.server";
+import { organizersEntryHref } from "~/lib/env.server";
 import {
   getPublicSpeakerEvent,
   listPublicSpeakers,
@@ -39,6 +40,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     view,
     total,
     count: speakers.length,
+    organizersHref: organizersEntryHref(),
     /*
      * The photo URL is built HERE, in the loader, not in the components below.
      * `publicSpeakerPhotoHref` lives in a `.server` module, and React Router
@@ -264,7 +266,7 @@ function GalleryView({
 }
 
 export default function PublicSpeakers({ loaderData }: Route.ComponentProps) {
-  const { event, q, view, total, count, speakers } = loaderData;
+  const { event, q, view, total, count, speakers, organizersHref } = loaderData;
   const clearHref = viewHref(event.slug, view, "");
 
   return (
@@ -276,6 +278,7 @@ export default function PublicSpeakers({ loaderData }: Route.ComponentProps) {
         { to: `/e/${event.slug}/schedule`, label: "Schedule" },
         { to: `/e/${event.slug}/speakers`, label: "Speakers" },
       ]}
+      organizersHref={organizersHref}
     >
       <div className="space-y-5">
         {/* The toolbar takes the same measure as the view under it. A 1104px

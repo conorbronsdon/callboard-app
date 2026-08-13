@@ -171,3 +171,15 @@ export function isDemoDeploymentExpired(): boolean {
     expiresAt: env.DEMO_EXPIRES_AT,
   });
 }
+
+/**
+ * Where the public "Organizers" doorway link (Shell's `organizersHref`)
+ * should point. `/admin` is real and auth-gated, but a signed-out visitor who
+ * follows it lands on the magic-link form with nothing to type — the
+ * one-click judge entry at `/demo` is the actual front door on a deployment
+ * where `isDemoMode()` holds. Production, where the demo shortcut does not
+ * exist, keeps pointing straight at `/admin`.
+ */
+export function organizersEntryHref(): string {
+  return isDemoMode() ? "/demo" : "/admin";
+}

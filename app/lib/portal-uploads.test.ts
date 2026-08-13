@@ -10,6 +10,7 @@ import {
   OWNER_UPLOAD_QUOTA,
   UPLOADER_EVENT_UPLOAD_QUOTA,
   formatBytes,
+  portalHeadshotHref,
   validateUpload,
   validateUploadQuota,
 } from "./portal-uploads";
@@ -150,6 +151,35 @@ describe("formatBytes", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2 KB");
     expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+  });
+});
+
+/**
+ * The mechanism behind the live-demo fix: a replaced headshot must render a
+ * DIFFERENT `src` string on `/portal/profile`, `/admin/speakers/:id` and the
+ * portal nav bar, or a browser that already painted the old photo never
+ * refetches — see `app/routes/portal.profile.headshot-refresh.test.tsx` for
+ * the reproduction this exists to keep fixed.
+ */
+describe("portalHeadshotHref — must fire", () => {
+  it("carries the person id in the path and the version in the query", () => {
+    expect(portalHeadshotHref("pe_1", "up_1")).toBe("/portal/headshot/pe_1?v=up_1");
+  });
+
+  it("changes when the version changes for the SAME person — the actual fix", () => {
+    const before = portalHeadshotHref("pe_1", "up_1");
+    const after = portalHeadshotHref("pe_1", "up_2");
+    expect(after).not.toBe(before);
+  });
+});
+
+describe("portalHeadshotHref — must not fire", () => {
+  it("does not change when the version is unchanged — no spurious cache-busting", () => {
+    expect(portalHeadshotHref("pe_1", "up_1")).toBe(portalHeadshotHref("pe_1", "up_1"));
+  });
+
+  it("does not fold two different people onto the same href", () => {
+    expect(portalHeadshotHref("pe_1", "up_1")).not.toBe(portalHeadshotHref("pe_2", "up_1"));
   });
 });
 

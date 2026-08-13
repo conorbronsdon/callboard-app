@@ -81,6 +81,16 @@ describe("inspectDemoConfig — must fire", () => {
       bucketName: "callboard-disposable-demo-files",
     });
   });
+
+  it("accepts an 18-day lifetime (the widened judging window; a silent return to seven days must fail here)", () => {
+    expect(() =>
+      inspectDemoConfig({
+        configPath: "/tmp/wrangler.demo.jsonc",
+        source: validConfig.replace("2026-08-10", "2026-08-23"),
+        now: NOW,
+      }),
+    ).not.toThrow();
+  });
 });
 
 describe("inspectDemoConfig — must not fire", () => {
@@ -90,7 +100,7 @@ describe("inspectDemoConfig — must not fire", () => {
     ["real email", "/tmp/wrangler.demo.jsonc", validConfig.replace('"console"', '"resend"')],
     ["missing expiry", "/tmp/wrangler.demo.jsonc", validConfig.replace('"2026-08-10T12:00:00.000Z"', '""')],
     ["expired", "/tmp/wrangler.demo.jsonc", validConfig.replace("2026-08-10", "2026-08-07")],
-    ["overlong lifetime", "/tmp/wrangler.demo.jsonc", validConfig.replace("2026-08-10", "2026-08-20")],
+    ["overlong lifetime", "/tmp/wrangler.demo.jsonc", validConfig.replace("2026-08-10", "2026-09-10")],
     ["placeholder", "/tmp/wrangler.demo.jsonc", validConfig.replace("judges", "REPLACE_JUDGES")],
   ])("rejects %s", (_name, configPath, source) => {
     expect(() => inspectDemoConfig({ configPath, source, now: NOW })).toThrow();

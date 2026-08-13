@@ -15,6 +15,7 @@ import {
 } from "~/db/schema";
 import { dayKeyOf, formatDayLabel } from "~/lib/agenda/schedule";
 import { buildCalendarDeeplinks } from "~/lib/calendar-deeplinks";
+import { organizersEntryHref } from "~/lib/env.server";
 import {
   parseScheduleFilter,
   scheduleFilterQuery,
@@ -103,11 +104,12 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       end: row.endsAt,
     }),
     backHref: `/e/${event.slug}/schedule${safeQuery ? `?${safeQuery}` : ""}#public-session-${row.id}`,
+    organizersHref: organizersEntryHref(),
   };
 }
 
 export default function PublicSession({ loaderData }: Route.ComponentProps) {
-  const { event, slot, dayLabel, calendarLinks, backHref } = loaderData;
+  const { event, slot, dayLabel, calendarLinks, backHref, organizersHref } = loaderData;
   return (
     <Shell
       title={slot.title}
@@ -117,6 +119,7 @@ export default function PublicSession({ loaderData }: Route.ComponentProps) {
         { to: `/e/${event.slug}/schedule`, label: "Schedule" },
         { to: `/e/${event.slug}/speakers`, label: "Speakers" },
       ]}
+      organizersHref={organizersHref}
     >
       <article
         data-public-session-detail={slot.id}

@@ -3,7 +3,7 @@
  * must stay fast.
  */
 import { useEffect } from "react";
-import { Form, NavLink, useLocation } from "react-router";
+import { Form, Link, NavLink, useLocation } from "react-router";
 
 import {
   isAdminNavGroup,
@@ -66,6 +66,7 @@ export function Shell({
   titleSize = "default",
   subtitle,
   nav,
+  organizersHref,
   actions,
   children,
 }: {
@@ -78,6 +79,15 @@ export function Shell({
   titleSize?: "default" | "display";
   subtitle?: string;
   nav?: AdminNavEntry[];
+  /**
+   * A quiet doorway to the admin surface, rendered right-aligned in the SAME
+   * strip as `nav` but deliberately NOT one of its tabs — the five public
+   * event pages pass this so an organizer or judge has an obvious way in
+   * without it competing with the attendee-facing Overview/Schedule/Speakers
+   * links for attention. Every other Shell caller (admin, portal, auth
+   * chrome) leaves this unset, so their nav strip is unchanged.
+   */
+  organizersHref?: string;
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -227,6 +237,22 @@ export function Shell({
                 </details>
               );
             })}
+            {organizersHref ? (
+              /*
+               * Deliberately NOT `navLinkClass` — that treatment reads as a
+               * fourth tab competing with Overview/Schedule/Speakers for an
+               * attendee's attention. `ml-auto` pushes it to the far end of
+               * the same strip; muted colour and a thin arrow mark it as a
+               * doorway to a different audience, not another page of this one.
+               */
+              <Link
+                to={organizersHref}
+                data-testid="public-organizers-link"
+                className="ml-auto shrink-0 self-center rounded-lg px-2.5 py-1.5 whitespace-nowrap text-gray-400 underline-offset-4 transition-colors hover:text-gray-600 hover:underline dark:text-gray-500 dark:hover:text-gray-300"
+              >
+                Organizers <span aria-hidden="true">→</span>
+              </Link>
+            ) : null}
           </nav>
         ) : null}
       </header>

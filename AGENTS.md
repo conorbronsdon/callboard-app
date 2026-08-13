@@ -15,9 +15,9 @@ product judgment calls already settled — do not relitigate them.
 9. **Judgment calls get written down** — one line in `DECISIONS.md` (what + why) for any deliberate deviation from Sessionboard.
 
 ## Stack landmines (each has burned hours; do not rediscover them)
-- **Env**: use the typed accessor around `context.cloudflare.env`. `process.env` is BANNED — it is undefined on deployed Workers. Grep your diff for it before pushing.
+- **Env**: use the typed `appEnv()` accessor in `app/lib/env.server.ts` (wraps the `cloudflare:workers` module's `env` export — NOT `context.cloudflare.env`, which the Cloudflare Vite plugin does not populate on the router context; see that file's header for why). `process.env` is BANNED in `app/` and `workers/` — it is undefined on deployed Workers. Grep your diff for it before pushing. (Node scripts under `scripts/`, `playwright.config.ts`, and test/config files legitimately use real `process.env` — the ban is scoped to application code.)
 - **D1 has no interactive transactions** — Drizzle `.transaction()` throws. Use `db.batch()`; respect the ~100 bound-params per query cap.
-- **Client-only UI** (drag-drop, DnD kit, anything touching `window`) goes inside `app/components/ClientOnly.tsx` — RR7 framework mode SSRs everything by default.
+- **Client-only UI** (drag-drop, DnD kit, anything touching `window`) goes inside `app/components/ClientOnly.tsx` — React Router v8 framework mode SSRs everything by default.
 - **Cron never fires in `wrangler dev`.** Every job is an exported function reachable at authed `POST /admin/jobs/run?name=<job>`; cron claims are only accepted with output from that route.
 - **Remote migrations are separate** — deploys run `migrate:remote`; if you see a 500 on a D1 route after deploy, that's the first suspect.
 - **R2 uploads** go through the Worker proxy (25MB cap). No presigned URLs.
@@ -45,4 +45,4 @@ Full command table and the rules that bite (no `process.env`, no D1 transactions
 - `app/lib/` — pure logic (conflict detection, form-schema eval, scoring, CSV export) — unit-testable, no I/O. `*.server.ts` may touch bindings
 - `app/components/` — shared UI (`Shell`, `ClientOnly`)
 - `workers/app.ts` — Worker entry: fetch + `scheduled`. Jobs live in `app/lib/jobs/registry.server.ts`
-- `scripts/` — plain Node tooling (seed, smoke, guards); the only place `process.env` is allowed
+- `scripts/` — plain Node tooling (seed, smoke, guards); `process.env` is legitimate here (and in test/config files like `playwright.config.ts`) — the ban is on `app/` and `workers/` application code, not the whole repo

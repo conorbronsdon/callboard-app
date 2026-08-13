@@ -156,6 +156,25 @@ Camel-case `publishOverride` is also accepted. The override and `is_public`
 cannot be set on create; create the record first, then update it. Unpublishing
 with `is_public: false` is never gated.
 
+Publishing is also refused when the final room/time placement would create a
+blocking room or speaker conflict — a separate gate from the informed-speaker
+one above, with its own separate override:
+
+```sh
+curl -i -X PUT \
+  "$CALLBOARD_ORIGIN/v1/event/$EVENT_ID/sessions/$SESSION_ID" \
+  -H "x-access-token: $CALLBOARD_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"is_public":true,"publish_force":true}'
+```
+
+`publish_force` (camel-case `publishForce` also accepted) clears only the
+conflict gate; it does not imply the speaker has been told. A session held for
+both reasons needs both `publish_override` and `publish_force` in the same
+request. Same-track overlap is advisory and never gates publication either way.
+See the [programme publishing guide](guides/publish-your-programme.md#5-use-publish-anyway-deliberately)
+for the organizer-UI equivalent of these two independent overrides.
+
 ## Resource model and bulk writes
 
 Abstracts and scheduled sessions are one resource. The immutable `is_abstract`

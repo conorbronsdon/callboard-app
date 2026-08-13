@@ -61,17 +61,17 @@ Suggested walkthrough:
 
 | Area | Current capability |
 |---|---|
-| Organizer dashboard | Producer-facing programme readiness with explicit blockers and next actions across submissions, speakers, tasks, schedule, rooms, and publication |
+| Organizer dashboard | Producer-facing programme readiness with explicit blockers and next actions across submissions, speakers, tasks, schedule, rooms, and publication, plus a "Set up your event" checklist for initial event configuration |
 | CFP builder | Six-step organizer flow, reusable field registry, conditional logic, cross-field character limits, category/track routing, participant bounds, close dates, limits, and cloning |
 | Public submission | Five-step mobile-first SSR flow, drafts, email-verified account entry, abstract/video modes, validation, confirmation email, and portal redirect |
-| Submission decisions | Seven status views, staged accept/decline queues, bulk commit, filtering, drill-in, and manual additions |
-| Review operations | Standalone assigned-only reviewer workspace, organizer “view as reviewer,” multi-round weighted scoring, reviewer aggregates and completion progress, reviewer provisioning by email with an additive capability flag, team management, round/rubric setup (add/remove criterion rows, numeric or dropdown types, lock on first submitted score), per-round blinding, reviewer conflict-of-interest recusal, reviewer reminders, and both batch assignment and direct per-reviewer assignment |
-| Score reporting | Aggregate-score sorting in the submissions list, plus a reviewer score CSV export at `/admin/submissions/scores.csv` carrying one column per round's aggregate, one column per dropdown criterion's answer distribution, reviewer comments, and the advisory AI-triage opinion kept in its own trailing columns |
+| Submission decisions | Seven status views plus a drag-and-drop kanban board (`/admin/submissions/board`), staged accept/decline queues, bulk commit, filtering, drill-in, and manual additions |
+| Review operations | Standalone assigned-only reviewer workspace, organizer “view as reviewer,” multi-round weighted scoring, reviewer aggregates and completion progress, reviewer provisioning by email with an additive capability flag, team management, round/rubric setup (add/remove criterion rows, numeric, dropdown, or free-text types, lock on first submitted score), per-round blinding, reviewer conflict-of-interest recusal, reviewer reminders, and both batch assignment and direct per-reviewer assignment |
+| Score reporting | Aggregate-score sorting in the submissions list, plus a reviewer score CSV export at `/admin/submissions/scores.csv` carrying one column per round's aggregate, one column per dropdown criterion's answer distribution, one column per free-text criterion's answers, reviewer comments, and the advisory AI-triage opinion kept in its own trailing columns |
 | AI first-pass triage | Advisory Workers AI triage on an abstract's detail page: a score, a queue recommendation, and a short rationale carrying the model label. It never writes a review, never changes a submission's status, and degrades to a visible "unavailable in this deployment" when no `AI` binding is present |
 | Speaker CRM | Organization-level contact directory spanning every event, with contact profiles, notes, tags, travel notes, CSV import (preview then commit), duplicate detection and merge, add-to-event, bulk email to a filtered selection, rollups for total contacts/events/returning contacts/top companies, savable named filter segments, and a sourcing pipeline (a kanban board over five fixed stages; each card moves either by dragging or by picking a stage and submitting) with a move-audit trail |
 | Files library | Organizer-side browser of every upload for an event, grouped into version chains (newest deliverable first), with per-file comments and a bulk ZIP download |
 | Multi-event | Multiple events per deployment, an admin event switcher that scopes every organizer screen, and in-app event creation |
-| Public & embeddable widgets | Public event page, schedule with search/day tabs/track-format-room facets and clickable speaker names, session detail, speaker directory/profiles/gallery with consent-gated headshots (monogram fallback when a speaker has not opted in), a unified “Show more” control, browser-local “My schedule” itinerary, and an `.ics` feed. An organizer embed builder generates four chrome-less widgets (schedule, agenda by day, speakers, speaker gallery) with theme, density, accent, and track options, emitted as an iframe snippet, a plain link, or a calendar feed. Saved embeds get a stable `?embed=<id>` URL and can be enabled, disabled, or deleted |
+| Public & embeddable widgets | Public event page, schedule with search/day tabs/track-format-room facets and clickable speaker names, session detail, speaker directory/profiles/gallery with consent-gated headshots (monogram fallback when a speaker has not opted in), a unified “Show more” control, browser-local “My schedule” itinerary, and an `.ics` feed. An organizer embed builder generates four chrome-less widgets (schedule, agenda by day, speakers, speaker gallery) with theme, density, accent, track, custom-CSS, and field-hiding options, emitted as an iframe snippet, a plain link, a calendar feed, or a raw JSON/XML data feed. Saved embeds get a stable `?embed=<id>` URL and can be enabled, disabled, or deleted. Full option reference: [docs/guides/embed-your-schedule.md](docs/guides/embed-your-schedule.md) |
 | Resource/wiki operations | Event-scoped create/edit/order, sanitized preview, publish/unpublish, and recoverable archive-as-unpublish |
 | Speaker portal | Status, deadline-gated pending corrections, accepted title/abstract/video corrections with programme-copy sync, profile, headshot/material uploads, tasks, portal forms, resources, and organizer impersonation |
 | Communications | Editable templates, confirmation email, task reminders, communication log, and ICS REQUEST/UPDATE/CANCEL lifecycle |
@@ -79,17 +79,17 @@ Suggested walkthrough:
 | Speaker roster | Add and edit speakers, participation status, portal-invite send, CSV import, and portal-form custom fields from organizer assignment through speaker answers |
 | API | Scoped keys across six independently grantable scopes (four read, two write — none cascade), consistent envelopes, sessions/speakers/metadata endpoints, OpenAPI document, and developer page |
 | Integrations | Byte-exact Accelevents CSV pair, optional API push when configured, non-blocking Airtable mirror, and built-in signed webhooks with optional Svix delivery |
-| Infrastructure | One Cloudflare Worker, D1, R2, React Router framework mode, Drizzle, Tailwind, Vitest, and Playwright |
+| Infrastructure | One Cloudflare Worker for the main application (D1, R2, React Router framework mode, Drizzle, Tailwind, Vitest, Playwright), plus a separate MCP Worker with no product bindings — see [Agents: point your MCP client here](#agents-point-your-mcp-client-here) |
 
 ## Limitations
 
 Known open gaps, verified against the commit this file ships in. Each one names the file
 or command that shows it, so it can be rechecked rather than taken on trust.
 
-Volatile counts for the commit this file ships in, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **17** migrations;
-`grep -c 'sqliteTable(' app/db/schema.ts` → **37** tables;
+Volatile counts for the commit this file ships in, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **20** migrations;
+`grep -c 'sqliteTable(' app/db/schema.ts` → **39** tables;
 `grep -oE 'insert\("[a-z_]+"' scripts/seed.mjs | sort -u | wc -l` → **29** seeded
-tables; `npx vitest list --run | wc -l` → **2610** tests.
+tables; `npx vitest list --run | grep -c ' > '` → **2836** tests.
 
 **AI triage is advisory only and never decides.** Workers AI (the `"ai"` binding
 in `wrangler.jsonc`, model `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) produces a
@@ -105,8 +105,10 @@ surface degrades to a visible “unavailable in this deployment.” The agenda's
 **Submission statuses are a fixed set of seven.** `SESSION_STATUSES` in
 `app/db/schema.ts` is a hard-coded list — `draft`, `pending`, `accept_queue`,
 `accepted`, `decline_queue`, `declined`, `withdrawn`. Organizers cannot rename,
-reorder, or add one; submissions are worked from filtered list views and a
-drill-in rather than a status board.
+reorder, or add one. Submissions can be worked from filtered list views and a
+drill-in, or from a drag-and-drop kanban board (`/admin/submissions/board`,
+`app/routes/admin.submissions.board.tsx`) — but the board's columns are exactly
+those seven fixed statuses, not an organizer-configurable status set.
 
 **The CRM sourcing pipeline's stages are fixed.**
 The kanban at `/admin/pipeline` lays contacts out in five hard-coded stage
@@ -117,12 +119,17 @@ same audited move action. There is still no stage-management UI to add, rename,
 reorder, or remove a stage: the ordering is product workflow, not organizer
 configuration.
 
-**The bulk file ZIP is capped at 30 MB.** The Files library at `/admin/files`
-lists every upload for an event grouped into version chains with per-file
-comments, and `/admin/files/download` streams a selection as a ZIP.
-`MAX_ZIP_BYTES` in `app/lib/zip.ts` is `30 * 1024 * 1024`: the archive is
-assembled in Worker memory (deliberately not Zip64), so a selection over the cap
-is refused with its own size quoted rather than streamed.
+**The bulk file ZIP selection is capped at 30 MB of source bytes.** The Files
+library at `/admin/files` lists every upload for an event grouped into version
+chains with per-file comments, and `/admin/files/download` streams a selection
+as a ZIP. `MAX_ZIP_BYTES` in `app/lib/zip.ts` is `30 * 1024 * 1024`: the archive
+is assembled in Worker memory (deliberately not Zip64), so a selection whose
+declared source bytes total over the cap is refused, with its own size quoted,
+before any object is fetched. The cap bounds the source selection, not the
+finished archive: `buildZip` (same file) adds a local header and a
+central-directory record per entry plus filenames and an end-of-central-directory
+record, so a selection sitting right at the cap produces a ZIP slightly larger
+than 30 MB, not one capped at exactly that size.
 
 **Saved segments are deployment-global and name-keyed.** A Contacts filter
 (search, company, title, event, notes, tag) can be saved as a named segment
@@ -164,9 +171,9 @@ JavaScript, does not sync across devices or browsers, is not tied to an account,
 and is lost when site data is cleared. The rest of the public schedule —
 search, day tabs, track/format/room facets — works without JavaScript.
 
-**Review blinding hides structured identity, not prose.** A blinded round
-excludes a session's `session_participants` row from the reviewer query
-entirely — only a `count()` runs (`app/routes/review.index.tsx:114-143`) — so
+**Review blinding hides structured identity, not prose.** A blinded round's
+`session_participants` query never selects an identity column — only a
+`count()` is projected (`app/routes/review.index.tsx:136-145`) — so
 name, email, company, and title never reach the reviewer. The abstract body is
 shown verbatim, so a submitter who names themselves in their own text is still
 identifiable, and un-blinding a round does not retroactively hide what a
@@ -182,10 +189,15 @@ not CFP-specific ones — nothing in `app/lib/review/` assumes "submission" over
 winners page is deliberate post-competition roadmap, not a gap in what ships
 today.
 
-**Reviewer invitations are not delivered.** An outside reviewer can be
-provisioned by email and gains the capability immediately (`invite-reviewer` in
-`admin.reviews.tsx`), but the invite panel does not claim a delivery it cannot
-observe. Team membership is still restricted to reviewer-capable people —
+**Reviewer invitations report the delivery state the mailer actually observed,
+never a presumed send.** An outside reviewer can be provisioned by email and
+gains the capability immediately (`invite-reviewer` in `admin.reviews.tsx`),
+and — on a deployment with real mail configured — the same sign-in email every
+other magic link uses is genuinely sent. The invite panel reports whichever
+state the mailer actually returned (`sent` only when a configured provider
+accepted the message, `logged` on the console driver, `failed` or `unknown`
+otherwise), so it never claims a delivery it did not observe. Team membership
+is still restricted to reviewer-capable people —
 `people.role = "admin"`, an event role in `admin`/`organizer`/`reviewer`, or the
 additive `event_people.is_reviewer` flag — so an arbitrary contact cannot be
 dropped onto a review team without being provisioned first.
@@ -230,7 +242,7 @@ command that reproduces it.
 | Claim | How to check it |
 |---|---|
 | The migration, table, and seeded-table counts are real | Run the three commands stamped at the top of [Limitations](#limitations); each prints the number quoted beside it |
-| The test suite is the size claimed | `npx vitest list --run \| wc -l`. Limitations stamps this count for the commit the file ships in — run it against your checkout and it should match exactly |
+| The test suite is the size claimed | `npx vitest list --run \| grep -c ' > '`. Limitations stamps this count for the commit the file ships in — run it against your checkout and it should match exactly. (Piping to plain `wc -l` also counts each worker process's one-line Node `ExperimentalWarning` banner, so raw line count varies run to run — filter to lines matching `' > '`, vitest's list-item separator, for a stable number.) |
 | The whole gate passes three consecutive isolated times | `npm run release:verify:repeat` — writes one attempt per pass to `artifacts/release-gate/<sha>/manifest.json` and only sets `"result": "passed"` after three |
 | CI runs that same gate, not a lighter one | [`.github/workflows/check.yml`](.github/workflows/check.yml) and [`.github/workflows/repeat-release-gate.yml`](.github/workflows/repeat-release-gate.yml) |
 | Calendar invites actually land in a real calendar | `app/lib/comms/ics.ts:5` records the end-to-end verification against Gmail on 2026-08-08: native RSVP card, event auto-staged, conflict detection ran |
@@ -482,7 +494,7 @@ The judge demo is a separate deployment, not an environment toggle on production
 2. Copy `wrangler.demo.example.jsonc` to the gitignored
    `wrangler.demo.jsonc`.
 3. Replace every `REPLACE_*` placeholder with the disposable demo origin,
-   newly provisioned D1 ID, and an ISO-8601 `DEMO_EXPIRES_AT` no more than seven
+   newly provisioned D1 ID, and an ISO-8601 `DEMO_EXPIRES_AT` no more than 21
    days away. Keep `DEPLOYMENT_PROFILE=demo`, `DEMO_MODE=1`, and
    `MAIL_DRIVER=console`. The one-click route fails closed when the deadline is
    missing, malformed, or passed.
@@ -520,7 +532,7 @@ The judge demo is a separate deployment, not an environment toggle on production
    intentionally tied to the default `wrangler.jsonc` and `callboard-db`.
 
 The reset command refuses the production config, non-disposable resource names,
-real email, unresolved placeholders, expired deadlines, and lifetimes over seven
+real email, unresolved placeholders, expired deadlines, and lifetimes over 21
 days. Runtime expiry returns 404 from the entire demo Worker; deleting the Worker
 and dedicated D1/R2 resources after judging is still an operator-owned Cloudflare
 cleanup step. The repository does not provision or edge-rate-limit those

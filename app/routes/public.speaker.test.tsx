@@ -53,6 +53,11 @@ async function addHiddenSession(
 }
 
 describe("loader", () => {
+  it("wires the Organizers doorway href (shell.test.tsx and public.event.test.tsx cover the /admin vs /demo branch)", async () => {
+    const data = await load(fixture.speakerIds[0]);
+    expect(data.organizersHref).toBe("/admin");
+  });
+
   it("MUST FIRE: public profile and every public-session field are present", async () => {
     const data = await load(fixture.speakerIds[0]);
     expect(data.speaker).toMatchObject({

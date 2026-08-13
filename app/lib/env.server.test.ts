@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueMagicLink } from "~/lib/auth/auth.server";
 import { installTestDb, type TestDbContext } from "~/test/db";
 
-import { appUrl } from "./env.server";
+import { appUrl, organizersEntryHref } from "./env.server";
 
 const PRODUCTION = "https://callboard.example.workers.dev";
 const PREVIEW = "https://9f2c1b0a-callboard.example.workers.dev";
@@ -43,6 +43,45 @@ describe("appUrl", () => {
     ctx.close();
     ctx = installTestDb();
     expect(() => appUrl()).toThrow(/APP_URL/);
+  });
+});
+
+describe("organizersEntryHref", () => {
+  it("MUST NOT FIRE: production (no DEPLOYMENT_PROFILE set) points at /admin", () => {
+    ctx.close();
+    ctx = installTestDb();
+    expect(organizersEntryHref()).toBe("/admin");
+  });
+
+  it("MUST FIRE: a live disposable demo points at the one-click entry instead", () => {
+    ctx.close();
+    ctx = installTestDb({
+      DEPLOYMENT_PROFILE: "demo",
+      DEMO_MODE: "1",
+      DEMO_EXPIRES_AT: "2099-08-12T05:00:00.000Z",
+    });
+    expect(organizersEntryHref()).toBe("/demo");
+  });
+
+  it("MUST NOT FIRE: a demo profile with only ONE of the two flags still points at /admin", () => {
+    // demoAccessEnabled requires DEPLOYMENT_PROFILE=demo AND DEMO_MODE AND an
+    // unexpired DEMO_EXPIRES_AT together — the same fail-closed boundary
+    // isDemoMode() already enforces. A doorway that jumped to /demo on a
+    // partial signal would hand judges a broken link on a real deployment
+    // that merely forgot to unset DEMO_MODE.
+    ctx.close();
+    ctx = installTestDb({ DEPLOYMENT_PROFILE: "demo" });
+    expect(organizersEntryHref()).toBe("/admin");
+  });
+
+  it("MUST NOT FIRE: an expired disposable demo falls back to /admin", () => {
+    ctx.close();
+    ctx = installTestDb({
+      DEPLOYMENT_PROFILE: "demo",
+      DEMO_MODE: "1",
+      DEMO_EXPIRES_AT: "2020-01-01T00:00:00.000Z",
+    });
+    expect(organizersEntryHref()).toBe("/admin");
   });
 });
 

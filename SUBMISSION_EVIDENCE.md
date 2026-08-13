@@ -42,10 +42,11 @@ The command produces:
 - `index.html`, a portable visual gallery suitable for review or submission
   preparation.
 
-A generated gallery from the live demo is committed under
-`artifacts/submission-evidence/final/` (regenerate any time with the command
-above). Review every
-image for private data before sharing.
+Nothing under `artifacts/` is committed yet — `git ls-files` returns no tracked
+path there as of this commit. Run the deployed-judge-demo command above to
+generate the gallery at `artifacts/submission-evidence/final/`, review every
+image for private data, and commit it before judging begins (the path is not
+`.gitignore`d). Regenerate any time with the same command.
 
 ## Requirement to screen map
 

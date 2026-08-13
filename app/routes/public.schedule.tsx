@@ -8,6 +8,7 @@ import { buttonClass, inputClass } from "~/components/portal-ui";
 import { PublicSlotChips, PublicSpeakerList } from "~/components/schedule-list";
 import { Shell, linkClass } from "~/components/shell";
 import { loadPublicSchedule } from "~/lib/agenda/public-schedule.server";
+import { organizersEntryHref } from "~/lib/env.server";
 import {
   EMPTY_FILTER,
   countSessions,
@@ -38,6 +39,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   return {
     ...(await loadPublicSchedule(params.slug)),
     initialFilter: parseScheduleFilter(new URL(request.url).searchParams),
+    organizersHref: organizersEntryHref(),
   };
 }
 
@@ -46,7 +48,7 @@ function hrefForDay(filter: ScheduleFilter, day: string): string {
 }
 
 export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
-  const { event, days, total, facets, initialFilter } = loaderData;
+  const { event, days, total, facets, initialFilter, organizersHref } = loaderData;
   const hydrated = useHydrated();
   const [filter, setFilter] = useState<ScheduleFilter>(initialFilter);
   const [starredIds, setStarredIds] = useState<Set<string>>(() => new Set());
@@ -119,6 +121,7 @@ export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
         { to: `/e/${event.slug}/schedule`, label: "Schedule" },
         { to: `/e/${event.slug}/speakers`, label: "Speakers" },
       ]}
+      organizersHref={organizersHref}
     >
       {total === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white/60 p-8 text-center dark:border-gray-700 dark:bg-gray-900/40">

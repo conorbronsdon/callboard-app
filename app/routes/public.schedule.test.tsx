@@ -38,6 +38,11 @@ afterEach(() => ctx.close());
 const load = (slug = EVENT_SLUG): Promise<LoaderData> => loader(asLoaderArgs(slug));
 
 describe("loader", () => {
+  it("wires the Organizers doorway href (shell.test.tsx and public.event.test.tsx cover the /admin vs /demo branch)", async () => {
+    const data = await load();
+    expect(data.organizersHref).toBe("/admin");
+  });
+
   it("MUST FIRE: published, scheduled sessions appear grouped by day", async () => {
     const data = await load();
 

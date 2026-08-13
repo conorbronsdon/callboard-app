@@ -6,11 +6,15 @@
  * "Back to Admin Mode" bar pinned above everything. The bar is in the layout
  * rather than each page so it cannot be lost by navigating inside the portal.
  */
+import { eq } from "drizzle-orm";
 import { Form, Link, NavLink, Outlet } from "react-router";
 
 import { Avatar } from "~/components/portal-ui";
 import { SignOutButton, SiteFooter } from "~/components/shell";
+import { getDb } from "~/db/client.server";
+import { uploads } from "~/db/schema";
 import { requirePortalActor } from "~/lib/portal/impersonation.server";
+import { portalHeadshotHref } from "~/lib/portal-uploads";
 import type { Route } from "./+types/portal.layout";
 
 /*
@@ -60,11 +64,30 @@ const TABS: { to: string; label: string; icon: TabIconName; end?: boolean }[] = 
 
 export async function loader({ request }: Route.LoaderArgs) {
   const actor = await requirePortalActor(request);
+
+  /*
+   * The nav-bar avatar's href needs the CURRENT upload's id, not just the
+   * key: `portalHeadshotHref` versions the URL with it so a replaced photo
+   * is a different `src` string on this shell, which persists across every
+   * portal page. Without a version, `headshot_key` changing underneath an
+   * unchanged href was exactly the bug (see `portal.profile.headshot-
+   * refresh.test.tsx`) — this is the ONE key lookup a nav bar rendered on
+   * every portal page can afford, on `uploads_key_idx`, which is unique.
+   */
+  const headshotUpload = actor.person.headshotKey
+    ? await getDb().query.uploads.findFirst({
+        where: eq(uploads.key, actor.person.headshotKey),
+        columns: { id: true },
+      })
+    : null;
+
   return {
     person: {
       email: actor.person.email,
       fullName: actor.person.fullName,
-      headshotId: actor.person.headshotKey ? actor.person.id : null,
+      headshotHref: headshotUpload
+        ? portalHeadshotHref(actor.person.id, headshotUpload.id)
+        : null,
     },
     impersonatedBy: actor.impersonatedBy
       ? { email: actor.impersonatedBy.email, fullName: actor.impersonatedBy.fullName }
@@ -114,7 +137,7 @@ export default function PortalLayout({ loaderData }: Route.ComponentProps) {
               name={person.fullName}
               email={person.email}
               size="sm"
-              src={person.headshotId ? `/portal/headshot/${person.headshotId}` : null}
+              src={person.headshotHref}
             />
             <SignOutButton className="text-sm text-gray-600 underline underline-offset-2 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100" />
           </div>

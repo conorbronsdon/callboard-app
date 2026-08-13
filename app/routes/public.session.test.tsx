@@ -57,6 +57,11 @@ async function markupFor(data: LoaderData): Promise<string> {
 }
 
 describe("public session detail", () => {
+  it("wires the Organizers doorway href (shell.test.tsx and public.event.test.tsx cover the /admin vs /demo branch)", async () => {
+    const data = await load();
+    expect(data.organizersHref).toBe("/admin");
+  });
+
   it("MUST FIRE: returns and renders range, metadata, description and full speaker identity", async () => {
     const data = await load();
     expect(data).toMatchObject({
