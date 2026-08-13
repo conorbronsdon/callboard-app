@@ -1,0 +1,175 @@
+{
+  "capturedAt": "2026-08-13T00:11:17.417Z",
+  "baseUrl": "https://demo.callboardhq.com",
+  "warning": "Review every screenshot for private data before sharing.",
+  "captures": [
+    {
+      "order": 1,
+      "file": "01-public-event-desktop.png",
+      "label": "Public event",
+      "caption": "A branded entry point for speakers and attendees.",
+      "path": "/e/frontier-ai-summit-2026",
+      "finalUrl": "https://demo.callboardhq.com/e/frontier-ai-summit-2026",
+      "title": "Frontier AI Summit 2026 — callboard",
+      "status": 200,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "order": 2,
+      "file": "02-cfp-welcome-mobile.png",
+      "label": "CFP welcome",
+      "caption": "The mobile-first starting point for a real seeded submission form.",
+      "path": "/submit/frontier-ai-summit-2026/000000fo-0000-4000-8000-000000000001",
+      "finalUrl": "https://demo.callboardhq.com/submit/frontier-ai-summit-2026/000000fo-0000-4000-8000-000000000001",
+      "title": "Speak at the Frontier AI Summit — Frontier AI Summit 2026",
+      "status": 200,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "order": 3,
+      "file": "03-command-centre-desktop.png",
+      "label": "Command centre",
+      "caption": "Event health, counts, and the organizer's next actions.",
+      "path": "/admin",
+      "finalUrl": "https://demo.callboardhq.com/admin",
+      "title": "",
+      "status": 200,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "order": 4,
+      "file": "04-form-builder-desktop.png",
+      "label": "Form builder",
+      "caption": "CFP configuration, routing, validation, and publishing controls.",
+      "path": "/admin/forms",
+      "finalUrl": "https://demo.callboardhq.com/admin/forms",
+      "title": "",
+      "status": 200,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "order": 5,
+      "file": "05-review-workbench-desktop.png",
+      "label": "Review workbench",
+      "caption": "Seeded proposals in the pending decision pipeline.",
+      "path": "/admin/submissions?tab=pending",
+      "finalUrl": "https://demo.callboardhq.com/admin/submissions?tab=pending",
+      "title": "",
+      "status": 200,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "order": 6,
+      "file": "06-schedule-planner-desktop.png",
+      "label": "Schedule planner",
+      "caption": "Room and time placement with dedicated conflict visibility.",
+      "path": "/admin/agenda",
+      "finalUrl": "https://demo.callboardhq.com/admin/agenda",
+      "title": "",
+      "status": 200,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "order": 7,
+      "file": "07-communications-desktop.png",
+      "label": "Communications",
+      "caption": "Templates and delivery history for speaker follow-through.",
+      "path": "/admin/comms",
+      "finalUrl": "https://demo.callboardhq.com/admin/comms",
+      "title": "",
+      "status": 200,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "order": 8,
+      "file": "08-integrations-desktop.png",
+      "label": "Integrations and API",
+      "caption": "Portable data paths without putting integrations in the critical path.",
+      "path": "/admin/integrations",
+      "finalUrl": "https://demo.callboardhq.com/admin/integrations",
+      "title": "",
+      "status": 200,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "order": 9,
+      "file": "09-public-programme-desktop.png",
+      "label": "Public programme",
+      "caption": "The published schedule turns organizer work into an attendee-facing outcome.",
+      "path": "/e/frontier-ai-summit-2026/schedule",
+      "finalUrl": "https://demo.callboardhq.com/e/frontier-ai-summit-2026/schedule",
+      "title": "Schedule — Frontier AI Summit 2026",
+      "status": 200,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "order": 10,
+      "file": "10-speaker-portal-mobile.png",
+      "label": "Speaker portal",
+      "caption": "Status and one clear next action on a phone-sized screen.",
+      "path": "/portal",
+      "finalUrl": "https://demo.callboardhq.com/portal",
+      "title": "Speaker portal — callboard",
+      "status": 200,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "order": 11,
+      "file": "11-speaker-tasks-mobile.png",
+      "label": "Speaker tasks",
+      "caption": "A focused checklist for onboarding and event readiness.",
+      "path": "/portal/tasks",
+      "finalUrl": "https://demo.callboardhq.com/portal/tasks",
+      "title": "Your tasks — callboard",
+      "status": 200,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "order": 12,
+      "file": "12-speaker-resources-mobile.png",
+      "label": "Speaker resources",
+      "caption": "Organizer-provided guidance available in the same portal.",
+      "path": "/portal/resources",
+      "finalUrl": "https://demo.callboardhq.com/portal/resources",
+      "title": "Resources — callboard",
+      "status": 200,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    }
+  ]
+}

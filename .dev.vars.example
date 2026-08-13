@@ -18,7 +18,7 @@ APP_URL=""
 DEPLOYMENT_PROFILE="demo"
 DEMO_MODE="1"
 
-# WS5. While unset, emails are logged to the console by ConsoleMailer.
+# While unset, emails are logged to the console by ConsoleMailer.
 # RESEND_API_KEY="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 # RESEND_FROM="callboard <noreply@example.com>"
 

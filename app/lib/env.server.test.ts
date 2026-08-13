@@ -13,8 +13,8 @@ import { installTestDb, type TestDbContext } from "~/test/db";
 
 import { appUrl } from "./env.server";
 
-const PRODUCTION = "https://callboard.conor-afe.workers.dev";
-const PREVIEW = "https://9f2c1b0a-callboard.conor-afe.workers.dev";
+const PRODUCTION = "https://callboard.example.workers.dev";
+const PREVIEW = "https://9f2c1b0a-callboard.example.workers.dev";
 
 let ctx: TestDbContext;
 

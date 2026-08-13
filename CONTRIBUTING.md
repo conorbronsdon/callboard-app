@@ -58,8 +58,8 @@ npm run e2e
 ```
 
 `npm run e2e` owns a fresh disposable local D1/R2 persistence directory and
-must not target a remote deployment. For documentation-only changes, CI remains
-the authoritative full-repository verification.
+must not target a remote deployment. Documentation-only changes still need
+`npm run check` to pass.
 
 ## Pull requests
 
@@ -69,7 +69,7 @@ A reviewable pull request should:
 - keep unrelated refactors out of the diff;
 - state security, migration, deployment, and compatibility impact;
 - include tests and reproducible verification evidence;
-- update README, API documentation, or the release ledger when claims change;
+- update README, API documentation, or DECISIONS.md when claims change;
 - disclose limitations and deferred work rather than presenting them as shipped.
 
 By contributing, you agree that your contribution is licensed under the

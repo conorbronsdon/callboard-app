@@ -42,14 +42,16 @@ The command produces:
 - `index.html`, a portable visual gallery suitable for review or submission
   preparation.
 
-Generated evidence is intentionally not committed by this change. Review every
+A generated gallery from the live demo is committed under
+`artifacts/submission-evidence/final/` (regenerate any time with the command
+above). Review every
 image for private data before sharing.
 
 ## Requirement to screen map
 
 The cold-judge routing table: each rubric area, the exact URLs that serve it, and
 one thing to try. Every route below is registered in `app/routes.ts` and was
-verified to exist on `main` at `125b5ee`. Paths are relative to the deployed
+verified to exist on `main` at `03e3acb`. Paths are relative to the deployed
 origin. `<slug>` is the seeded event `frontier-ai-summit-2026` (a Europe sibling,
 `frontier-ai-summit-europe-2026`, is seeded too so the event switcher has a
 second row); `<cfp>` is the seeded CFP form id
@@ -96,5 +98,5 @@ programme-readiness dashboard that names blockers and next actions).
 - [ ] Status labels and counts agree across dashboard, review, agenda, and portal.
 - [ ] Desktop pages do not clip controls; mobile pages do not scroll horizontally.
 - [ ] Captions describe user outcomes and do not overclaim unverified behavior.
-- [ ] The gallery is reviewed alongside the release ledger, not as a substitute for it.
+- [ ] The gallery is reviewed alongside DECISIONS.md, not as a substitute for it.
 - [ ] The final selected images form a coherent story in the listed order.

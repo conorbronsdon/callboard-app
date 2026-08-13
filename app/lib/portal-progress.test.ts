@@ -43,7 +43,7 @@ describe("statusPresentation", () => {
 
   /* must-not-fire: the accept queue is organiser intent, not a decision. Until
      the organiser commits the queue it must read exactly like the decline queue
-     — same label, same tone, same glyph, same hint (Conor, 2026-08-11). */
+     — same label, same tone, same glyph, same hint. */
   it("does NOT tell a speaker they are in the accept queue", () => {
     const shown = statusPresentation("accept_queue");
     expect(shown.label).toBe("Under review");

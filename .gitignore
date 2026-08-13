@@ -18,10 +18,6 @@ wrangler.demo.jsonc
 
 *.local
 .DS_Store
-.allow-shared-edit
-download.txt
-download.html
-*.pdf
 
 # Playwright
 test-results/

@@ -12,10 +12,15 @@ self-hostable alternative to Sessionboard.
 
 ## Try the demo
 
-**Live demo: <https://demo.callboardhq.com>**
+**Live demo: <https://demo.callboardhq.com>** · **Project site: <https://callboardhq.com>**
 
 - Event page: <https://demo.callboardhq.com/e/frontier-ai-summit-2026>
 - One-click judge roles (organizer and speaker): <https://demo.callboardhq.com/demo>
+
+**Judging this?** [SUBMISSION_EVIDENCE.md](SUBMISSION_EVIDENCE.md) maps every rubric
+area to the exact URLs that serve it, with one thing to try on each.
+
+![Dragging a session on the agenda day board of the live demo](docs/media/agenda-drag.gif)
 
 That environment is a disposable, seeded demo. It is periodically reset to the
 deterministic seed, so anything created there is temporary and will be wiped,
@@ -66,46 +71,12 @@ Suggested walkthrough:
 | Integrations | Byte-exact Accelevents CSV pair, optional API push when configured, and non-blocking Airtable mirror |
 | Infrastructure | One Cloudflare Worker, D1, R2, React Router framework mode, Drizzle, Tailwind, Vitest, and Playwright |
 
-### Deliberate scope and current limitations
-
-- The public speaker gallery is implemented. It was waived earlier in the
-  challenge and its stub route was removed; the directory, profile, and gallery
-  now ship for real at `/e/<slug>/speakers`, populated from the same published
-  sessions the schedule reads.
-- Assigned multi-round weighted scoring, reviewer completion progress, and
-  organizer reviewer operations are implemented. The standalone reviewer route
-  shows only that person's open-round team assignments and no organizer
-  navigation; organizers can enter it through the signed “view as reviewer”
-  path. Reviewers are provisioned by email invitation and the capability is
-  additive: a `reviewer` event role or an `is_reviewer` flag grants it without
-  overwriting the role that person already holds, so a speaker who agrees to
-  review stays in the speaker roster and its mail audiences. Rubric design adds
-  rows (the blank row at the bottom), removes them (set a row to Remove), and
-  offers a non-scored `dropdown` criterion type whose answers are reported as a
-  distribution rather than folded into the weighted average; a rubric is locked
-  server-side once any reviewer has submitted a score in that round. Round-level
-  blinding is a per-round toggle, and a reviewer can declare a conflict to recuse
-  themselves from an assignment. Batch assignment is limited to active
-  pending/accept-queue/decline-queue abstracts, optionally scoped to one track.
-- Organizer resource/wiki operations support event-scoped create, edit, order,
-  sanitized preview, publish, unpublish, and recoverable archive. Because the
-  schema has no separate archived state, archive intentionally means unpublish;
-  the page remains editable and can be published again.
-- Gmail rendered the tested ICS invitation natively. Outlook lifecycle
-  verification is still pending domain verification.
-- Accelevents API push and Airtable mirroring require credentials. The
-  Accelevents CSV path works without them.
-- Atomic D1 rate limits protect public write paths. Every deployment requires a
-  distinct `RATE_LIMIT_SECRET`; WAF/Turnstile edge controls are still needed
-  before broad exposure because application limits cannot stop distributed abuse.
-
 ## Limitations
 
-Known open gaps, verified against `main` at `125b5ee`. Each one names the file
+Known open gaps, verified against `main` at `03e3acb`. Each one names the file
 or command that shows it, so it can be rechecked rather than taken on trust.
 
-Volatile counts at `125b5ee`, one reproducing command each (recount at the final
-candidate): `ls app/db/migrations/*.sql | wc -l` → **15** migrations;
+Volatile counts at `03e3acb`, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **15** migrations;
 `grep -c 'sqliteTable(' app/db/schema.ts` → **37** tables;
 `grep -oE 'insert\("[a-z_]+"' scripts/seed.mjs | sort -u | wc -l` → **29** seeded
 tables; `npx vitest list --run | wc -l` → **2269** tests.
@@ -264,9 +235,11 @@ Playwright refuses every non-loopback `CALLBOARD_E2E_URL`. The suite mutates
 data and uploads files, and a local process cannot prove that a remote Worker
 has disabled real email. Run it only against a disposable local server.
 
-CI runs the production build, unit/guard/type checks, migration-drift check,
-Playwright, a high/critical lockfile dependency audit, and a guard that rejects
-mutable GitHub Action references. Generated migrations must be committed.
+`npm run release:verify` runs the production build, unit/guard/type checks,
+migration-drift check, Playwright, a high/critical lockfile dependency audit,
+and a guard that rejects mutable GitHub Action references. The same gate is
+committed as a GitHub Actions workflow in `.github/workflows/check.yml`.
+Generated migrations must be committed.
 
 Both deployed smoke profiles call `/ready`. The probe returns 503 unless
 `SESSION_SECRET`, `MAGIC_LINK_SECRET`, and `RATE_LIMIT_SECRET` are present
@@ -305,6 +278,11 @@ workers/app.ts    Worker fetch and scheduled entry points
 scripts/          seed, guards, acceptance checks, and smoke
 tests/e2e/        Playwright golden paths and fixtures
 ```
+
+Code comments cite `PLAN.md` and `research/*.md` — the private planning and
+competitive-research notes this project was built from. They are not part of
+the public repository; the conclusions they informed are recorded in
+[DECISIONS.md](DECISIONS.md).
 
 Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md). Coding agents must
 also read [AGENTS.md](AGENTS.md). Product tradeoffs are recorded in

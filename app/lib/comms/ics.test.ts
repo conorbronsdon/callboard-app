@@ -29,7 +29,7 @@ const END = new Date("2026-10-07T17:30:00Z");
 const STAMP = new Date("2026-08-08T10:10:44Z");
 
 const SESSION_ID = "5e000000-0000-4000-8000-000000000001";
-const HOST = "callboard.conor-afe.workers.dev";
+const HOST = "callboard.example.workers.dev";
 
 function input(over: Partial<IcsEventInput> = {}): IcsEventInput {
   return {
