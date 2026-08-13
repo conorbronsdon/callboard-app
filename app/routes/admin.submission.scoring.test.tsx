@@ -16,7 +16,12 @@ import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 import { commitQueues } from "~/lib/review/commit.server";
 
-import { SubmissionDetailView, action, loader } from "./admin.submission";
+import {
+  SubmissionDetailView,
+  action,
+  loader,
+  submissionLoaderPayload,
+} from "./admin.submission";
 
 type LoaderArgs = Parameters<typeof loader>[0];
 type ActionArgs = Parameters<typeof action>[0];
@@ -77,7 +82,7 @@ afterEach(() => ctx.close());
 
 async function load(id: string) {
   const request = await signedInGet(`https://x.test/admin/submissions/${id}?tab=pending`, fixture.adminId);
-  return loader(asLoaderArgs(request, id));
+  return submissionLoaderPayload(await loader(asLoaderArgs(request, id)));
 }
 
 async function post(id: string, fields: Record<string, string>) {

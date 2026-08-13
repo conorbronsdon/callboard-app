@@ -1,6 +1,8 @@
 /**
  * Demo-mode constants, shared by the seed script and the /demo route so the
- * one-click sign-ins can never drift from the seeded accounts.
+ * one-click sign-ins can never drift from the seeded accounts. The labels are
+ * the button copy; app/lib/demo.test.ts pins them because the e2e specs and
+ * README match these strings literally.
  *
  * Keep this file dependency-free — `scripts/seed.mjs` reads these values too.
  */
@@ -11,13 +13,13 @@ export const DEMO_ACCOUNTS = {
   admin: {
     email: "admin@callboard.dev",
     fullName: "Ada Organiser",
-    label: "Enter as admin",
+    label: "Enter organizer workspace",
     landing: "/admin",
   },
   speaker: {
     email: "speaker@callboard.dev",
     fullName: "Sam Speaker",
-    label: "Enter as speaker",
+    label: "Enter speaker portal",
     landing: "/portal",
   },
 } as const;

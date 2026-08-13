@@ -10,14 +10,15 @@
  *   · an opinion            — score, recommendation, reasoning, model label
  *   · a failed attempt      — what the model actually said, kept
  *   · no row, AI available  — the "Run AI triage" button
- *   · no row, no binding    — "AI triage unavailable in this deployment"
+ *   · no row, no binding    — unavailable note and no runnable controls
  *
  * "No binding" is a property of the DEPLOYMENT, not of the row, so its
  * explanation is rendered from `aiAvailable` alone rather than from the empty
  * branch. It used to hang off `triage === null`, which left the fifth state —
  * a seeded row on a deployment with no Workers AI, i.e. exactly the judged
- * demo — showing a greyed-out "Run again" and no reason for it. A disabled
- * control that does not say why is indistinguishable from a broken one.
+ * demo — showing greyed-out "Run again" and "Dismiss" controls with no reason
+ * for either. Disabled controls that do not say why are indistinguishable from
+ * broken ones.
  *
  * The label is not decoration. A number on an organizer's screen that a human
  * did not put there has to say so, next to the model that produced it, or the
@@ -78,7 +79,7 @@ function UnavailableNote({ hasRow }: { hasRow: boolean }) {
       AI triage unavailable in this deployment. The Workers AI binding is not configured
       here, so{" "}
       {hasRow
-        ? "“Run again” is disabled and the first pass below cannot be refreshed — it is the pre-computed example this demo ships with"
+        ? "“Run again” and “Dismiss” are disabled and the first pass below cannot be refreshed or permanently removed — it is the pre-computed example this demo ships with"
         : "no first pass can be run"}
       . Every other part of review is unaffected.
     </p>
@@ -141,6 +142,13 @@ export function AiTriageCard({
               <button
                 type="submit"
                 data-testid="ai-triage-dismiss"
+                disabled={!aiAvailable}
+                aria-describedby={aiAvailable ? undefined : UNAVAILABLE_NOTE_ID}
+                title={
+                  aiAvailable
+                    ? undefined
+                    : "Dismiss is permanent, and this deployment cannot re-run AI triage to restore the result."
+                }
                 className={buttonClass("secondary", "sm")}
               >
                 Dismiss

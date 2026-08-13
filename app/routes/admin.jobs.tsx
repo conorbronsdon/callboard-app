@@ -36,6 +36,10 @@ export function humanSchedule(cron: string): string {
   return `on schedule ${cron}`;
 }
 
+export function meta() {
+  return [{ title: "Jobs — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const url = new URL(request.url);

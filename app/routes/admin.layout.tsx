@@ -6,6 +6,10 @@ import { requireAdmin } from "~/lib/auth/auth.server";
 import { currentEvent, listEvents } from "~/lib/event.server";
 import type { Route } from "./+types/admin.layout";
 
+export function meta() {
+  return [{ title: "callboard admin" }];
+}
+
 /**
  * Admin guard for every `/admin/*` route. Nested loaders run in parallel with
  * this one, so they must not assume it has already passed — anything that reads

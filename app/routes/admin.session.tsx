@@ -104,6 +104,10 @@ function emptyData(
   };
 }
 
+export function meta() {
+  return [{ title: "Session — callboard admin" }];
+}
+
 export async function loader({ request, params }: Route.LoaderArgs): Promise<SessionData> {
   await requireAdmin(request);
   const event = await currentEvent(request);

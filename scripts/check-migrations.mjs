@@ -6,6 +6,8 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 
+import { unjournaledMigrations } from "./check-migrations-lib.mjs";
+
 const shell = process.platform === "win32";
 const MIGRATIONS_DIR = "app/db/migrations";
 
@@ -53,13 +55,15 @@ if (/(^|\n)Error:/.test(generated) || generated.includes("MODULE_NOT_FOUND")) {
 console.log(`migrations:check: drizzle-kit outcome ➜ ${JSON.stringify(outcome)}`);
 
 /*
- * The journal is the map D1's migration runner reads: each entry's `tag` is
- * resolved to `<tag>.sql`. Nothing above touches it — `drizzle-kit generate`
- * compares SNAPSHOTS, so a journal whose tag points at a file that does not
- * exist still produces "No schema changes" and a clean `git status`. That is
- * exactly the shape of a hand-renumbered migration (this lane renumbered
- * 0005_left_spot to 0006 to clear a collision with 0005_true_riptide), so the
- * rename needs a check that can actually go red.
+ * Wrangler reads the migration DIRECTORY configured by `migrations_dir`,
+ * applies its `.sql` files in filename order, and records them in D1's
+ * `d1_migrations` table; it never reads `meta/_journal.json`. The journal is
+ * drizzle-kit's bookkeeping, written by `drizzle-kit generate` and read to
+ * locate the last generated snapshot. The systems therefore key off different
+ * state: a SQL file can be applied by Wrangler while remaining invisible to
+ * drizzle-kit. Conversely, drizzle-kit compares SNAPSHOTS, so a journal tag
+ * pointing at a missing file still produces "No schema changes" and a clean
+ * `git status`. That is why the journal-to-disk direction below must go red.
  */
 const journalPath = `${MIGRATIONS_DIR}/meta/_journal.json`;
 const journal = JSON.parse(readFileSync(journalPath, "utf8"));
@@ -83,6 +87,17 @@ if (journalProblems.length > 0) {
   process.exit(1);
 }
 console.log(`migrations:check: journal maps ${journal.entries.length} entries onto files on disk`);
+
+const { unjournaled, allowlisted } = unjournaledMigrations(MIGRATIONS_DIR);
+if (allowlisted.length > 0) {
+  console.log(`migrations:check: skipping allowlisted unjournaled files: ${allowlisted.join(", ")}`);
+}
+if (unjournaled.length > 0) {
+  console.error(
+    "migrations:check: warning: SQL files exist on disk without drizzle journal entries:",
+  );
+  for (const name of unjournaled) console.error(`  - ${name}`);
+}
 
 const changes = run("git", ["status", "--porcelain", "--", "app/db/migrations"], {
   capture: true,

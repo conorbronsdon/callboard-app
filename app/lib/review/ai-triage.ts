@@ -195,9 +195,31 @@ export function textFromAiResponse(value: unknown): string {
   if (!value || typeof value !== "object") return "";
   const record = value as Record<string, unknown>;
   if (typeof record.response === "string") return record.response;
+  /*
+   * The live Workers AI binding for the fp8-fast Llama models returns an
+   * OpenAI-style chat.completion object with the text at
+   * choices[0].message.content and NO top-level `response` string (the REST
+   * API adds that alias in its envelope; the binding does not). Missing this
+   * shape made every live triage report "The model returned no text".
+   */
+  const fromChoices = (candidate: unknown): string => {
+    if (!candidate || typeof candidate !== "object") return "";
+    const choices = (candidate as Record<string, unknown>).choices;
+    if (!Array.isArray(choices) || choices.length === 0) return "";
+    const first = choices[0];
+    if (!first || typeof first !== "object") return "";
+    const message = (first as Record<string, unknown>).message;
+    if (!message || typeof message !== "object") return "";
+    const content = (message as Record<string, unknown>).content;
+    return typeof content === "string" ? content : "";
+  };
+  const direct = fromChoices(record);
+  if (direct) return direct;
   if (record.result && typeof record.result === "object") {
     const inner = (record.result as Record<string, unknown>).response;
     if (typeof inner === "string") return inner;
+    const nested = fromChoices(record.result);
+    if (nested) return nested;
   }
   return "";
 }

@@ -70,6 +70,10 @@ function invalid(error: string, values: SubmittedValues) {
   return { ok: false as const, error, values };
 }
 
+export function meta() {
+  return [{ title: "New event — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   return { defaultTimezone: DEFAULT_TIMEZONE };

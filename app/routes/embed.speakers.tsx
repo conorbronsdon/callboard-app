@@ -17,6 +17,11 @@ import {
 } from "~/lib/public-speakers.server";
 import type { Route } from "./+types/embed.speakers";
 
+export function meta({ loaderData }: Route.MetaArgs) {
+  const event = loaderData?.event?.name;
+  return [{ title: event ? `Speakers — ${event}` : "Speakers — callboard" }];
+}
+
 export async function loader({ params, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const { theme, track, accent, density } = await resolveEmbedOptions(

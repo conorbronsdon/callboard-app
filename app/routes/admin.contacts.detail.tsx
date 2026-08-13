@@ -63,6 +63,10 @@ export interface ContactDetailData {
   pipelineStageOptions?: { value: keyof typeof PIPELINE_STAGE_LABELS; label: string }[];
 }
 
+export function meta() {
+  return [{ title: "Contact — callboard admin" }];
+}
+
 export async function loader({ request, params }: Route.LoaderArgs): Promise<ContactDetailData> {
   await requireAdmin(request);
   const db = getDb();

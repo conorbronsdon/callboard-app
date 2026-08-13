@@ -229,9 +229,7 @@ export default function Demo({ loaderData, actionData }: Route.ComponentProps) {
                 type="submit"
                 className={`${buttonClass("primary")} mt-3 w-full`}
               >
-                {account.role === "admin"
-                  ? "Enter organizer workspace"
-                  : "Enter speaker portal"}
+                {account.label}
               </button>
             </Form>
           ))}
@@ -334,10 +332,11 @@ export default function Demo({ loaderData, actionData }: Route.ComponentProps) {
         <aside className="mt-8 rounded-xl border border-gray-200 bg-white p-5 shadow-card dark:border-gray-800 dark:bg-gray-900">
           <p className={eyebrowClass}>Where the edges are</p>
           <p className="mt-2 max-w-prose text-sm leading-6 text-gray-700 dark:text-gray-200">
-            CRM, marketing pages, and payment processing are intentionally out of
+            Marketing pages and payment processing are intentionally out of
             scope. Callboard covers the programme itself — the call, the review,
-            the speakers and the agenda — and everything you can reach from here
-            is built, not stubbed.
+            the speakers, the agenda, and a cross-event speaker CRM with a
+            sourcing pipeline — and everything you can reach from here is built,
+            not stubbed.
           </p>
           <p className="mt-3 max-w-prose text-xs leading-5 text-gray-500 dark:text-gray-400">
             This is an isolated, disposable demo. Changes affect seeded

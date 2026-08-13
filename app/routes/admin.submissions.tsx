@@ -114,6 +114,10 @@ export function listUrl(
   return `/admin/submissions?${params.toString()}${extra}`;
 }
 
+export function meta() {
+  return [{ title: "Submissions — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const event = await currentEvent(request);
@@ -134,6 +138,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     rooms: [] as { id: string; name: string }[],
     queue: { accept: 0, decline: 0 },
     notice: null as string | null,
+    /** Drives the retry affordance: sends that failed after a durable commit. */
+    notifyFailed: 0,
     /** `?confirm=commit` — the review step before decisions become real. */
     confirming: false,
     /** False when this deployment has no Workers AI binding. */
@@ -258,6 +264,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const accepted = Number(url.searchParams.get("ca"));
   const declined = Number(url.searchParams.get("cd"));
   const notified = Number(url.searchParams.get("cn"));
+  const notifyFailed = Number(url.searchParams.get("cf"));
   const created = url.searchParams.get("created");
 
   const triaged = Number(url.searchParams.get("ai"));
@@ -275,9 +282,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     Number.isFinite(accepted) &&
     Number.isFinite(declined) &&
     Number.isFinite(notified) &&
+    Number.isFinite(notifyFailed) &&
     url.searchParams.has("ca")
   ) {
-    notice = `Queues committed — ${accepted} accepted, ${declined} declined, ${notified} speakers notified.`;
+    notice = notifyFailed > 0
+      ? `Queues committed — ${accepted} accepted, ${declined} declined, ${notified} notified, ${notifyFailed} failed.`
+      : `Queues committed — ${accepted} accepted, ${declined} declined, ${notified} speakers notified.`;
   } else if (created === "abstract" || created === "session") {
     notice = `Created a ${created}.`;
   } else if (created === "capture") {
@@ -344,6 +354,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       decline: counts.get("decline_queue") ?? 0,
     },
     notice,
+    /** Drives the retry affordance: sends that failed after a durable commit. */
+    notifyFailed: Number.isFinite(notifyFailed) ? Math.max(0, notifyFailed) : 0,
     confirming: url.searchParams.get("confirm") === "commit",
     aiAvailable: triageBinding() !== null,
   };
@@ -498,7 +510,7 @@ export async function action({ request }: Route.ActionArgs) {
       listUrl(
         "accepted",
         trackFilter,
-        `&ca=${result.accepted}&cd=${result.declined}&cn=${result.notified}`,
+        `&ca=${result.accepted}&cd=${result.declined}&cn=${result.notified}&cf=${result.notifyFailed}`,
       ),
     );
   }
@@ -888,11 +900,13 @@ function CaptureDrawer({
 
 export type AbstractsViewProps = Omit<
   Awaited<ReturnType<typeof loader>>,
-  "sort" | "aiAvailable"
+  "sort" | "aiAvailable" | "notifyFailed"
 > & {
   sort?: SubmissionScoreSort | null;
   /** Optional so hand-built render-test props stay short. */
   aiAvailable?: boolean;
+  /** Optional so hand-built render-test props stay short. */
+  notifyFailed?: number;
   actionData?: { ok: false; error: string } | undefined;
 };
 
@@ -908,6 +922,7 @@ export function AbstractsView({
   rooms: roomOptions,
   queue,
   notice,
+  notifyFailed = 0,
   confirming,
   aiAvailable = false,
   actionData,
@@ -1033,9 +1048,18 @@ export function AbstractsView({
       ) : null}
 
       {notice ? (
-        <p className="rounded border border-green-300 bg-green-50 p-3 text-sm dark:border-green-800 dark:bg-green-950">
-          {notice}
-        </p>
+        <div className="rounded border border-green-300 bg-green-50 p-3 text-sm dark:border-green-800 dark:bg-green-950">
+          <p>{notice}</p>
+          {notifyFailed > 0 ? (
+            <form method="post" action="/admin/agenda" className="mt-2">
+              <input type="hidden" name="intent" value="send-decision-letters" />
+              <input type="hidden" name="view" value="list" />
+              <button type="submit" className={GHOST_BUTTON}>
+                Retry failed decision letters
+              </button>
+            </form>
+          ) : null}
+        </div>
       ) : null}
       {actionData && !actionData.ok ? (
         <p className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">

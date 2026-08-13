@@ -78,6 +78,10 @@ async function speakerRoster(eventId: string): Promise<RosterPerson[]> {
     .orderBy(asc(people.fullName), asc(people.email));
 }
 
+export function meta() {
+  return [{ title: "Tasks — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs): Promise<TasksData> {
   await requireAdmin(request);
   const event = await currentEvent(request);

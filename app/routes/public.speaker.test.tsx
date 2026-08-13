@@ -207,7 +207,7 @@ describe("render", () => {
   });
 
   it("MUST FIRE: a long bio collapses behind Show more, with the full text still in the HTML", async () => {
-    const longBio = `${"Priya has spent a decade on inference infrastructure. ".repeat(6)}End marker.`;
+    const longBio = `${"Ingrid has spent a decade on inference infrastructure. ".repeat(6)}End marker.`;
     expect(longBio.length).toBeGreaterThan(BIO_CLAMP_CHARS);
     await ctx.db
       .update(people)

@@ -15,6 +15,10 @@ import {
 import { requireCurrentEvent } from "~/lib/event.server";
 import type { Route } from "./+types/admin.settings";
 
+export function meta() {
+  return [{ title: "Settings — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const event = await requireCurrentEvent(request);

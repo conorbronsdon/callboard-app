@@ -17,6 +17,7 @@
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { getDb } from "~/db/client.server";
+import { isSessionInformed } from "~/lib/agenda/informed-gate.server";
 import {
   formats,
   levels,
@@ -508,7 +509,12 @@ export interface SessionWriteValues {
 }
 
 export type ParseResult =
-  | { ok: true; values: SessionWriteValues; expectedUpdatedAt: number | null }
+  | {
+      ok: true;
+      values: SessionWriteValues;
+      expectedUpdatedAt: number | null;
+      publishOverride: boolean;
+    }
   | { ok: false; message: string };
 
 const MAX_TITLE = 300;
@@ -663,6 +669,13 @@ export function parseSessionBody(raw: unknown, mode: "create" | "update"): Parse
     }
   }
 
+  if (mode === "create" && ("isPublic" in input || "is_public" in input)) {
+    return {
+      ok: false,
+      message:
+        "`is_public` is not accepted on create. Create the session, then publish it once its speaker has been told.",
+    };
+  }
   const isPublic = pick(input, "isPublic", "is_public");
   if (isPublic !== undefined) {
     const parsed = asBoolean(isPublic);
@@ -707,8 +720,23 @@ export function parseSessionBody(raw: unknown, mode: "create" | "update"): Parse
   }
 
   const expected = asTimestamp(pick(input, "updatedAt", "updated_at"));
+  const publishOverrideRaw = pick(input, "publishOverride", "publish_override");
+  if (mode === "create" && ("publishOverride" in input || "publish_override" in input)) {
+    return { ok: false, message: "`publish_override` is accepted only on update." };
+  }
+  const publishOverride = publishOverrideRaw === undefined
+    ? false
+    : asBoolean(publishOverrideRaw);
+  if (publishOverride === null) {
+    return { ok: false, message: "`publish_override` must be a boolean." };
+  }
 
-  return { ok: true, values, expectedUpdatedAt: mode === "update" ? expected : null };
+  return {
+    ok: true,
+    values,
+    expectedUpdatedAt: mode === "update" ? expected : null,
+    publishOverride,
+  };
 }
 
 /* ----------------------------------------------------------- mutations */
@@ -799,6 +827,7 @@ export async function updateSession(
   sessionId: string,
   values: SessionWriteValues,
   expectedUpdatedAt: number | null,
+  publishOverride = false,
 ): Promise<WriteResult<SessionInput>> {
   const db = getDb();
   const existing = await db.query.sessions.findFirst({
@@ -826,6 +855,22 @@ export async function updateSession(
       error: {
         code: "conflict",
         message: `Stale \`updated_at\`. The session was last modified at ${existing.updatedAt.toISOString()}.`,
+      },
+    };
+  }
+
+  if (
+    values.isPublic === true &&
+    !existing.isPublic &&
+    !publishOverride &&
+    !(await isSessionInformed(db, sessionId))
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "conflict",
+        message:
+          "The speaker hasn't been told about this session yet. Send their decision letter, or pass `publish_override: true`.",
       },
     };
   }
@@ -1007,7 +1052,13 @@ export async function bulkSessions(
         fail("validation", parsed.message);
         continue;
       }
-      const updated = await updateSession(eventId, id, parsed.values, parsed.expectedUpdatedAt);
+      const updated = await updateSession(
+        eventId,
+        id,
+        parsed.values,
+        parsed.expectedUpdatedAt,
+        parsed.publishOverride,
+      );
       if (updated.ok) {
         results.push({ index, action, status: "success", id: updated.value.id });
       } else {

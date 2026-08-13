@@ -53,8 +53,25 @@ export function StatusCell({
    */
   return (
     <details className="w-max">
-      <summary className="cursor-pointer list-none">
+      <summary
+        aria-label={`Change status (currently ${tabFor(status).label})`}
+        className="inline-flex cursor-pointer list-none items-center gap-2"
+      >
         <StatusPill status={status} />
+        {/*
+          No `aria-label` here: the `<summary>` above already carries one, and
+          an accessible name on an ancestor replaces the whole subtree for
+          assistive tech. A second label on this span is dead weight that reads
+          as a second control in the markup without ever being announced.
+        */}
+        <span className="text-xs text-gray-500 dark:text-gray-400">Change</span>
+        <span
+          data-status-disclosure
+          aria-hidden="true"
+          className="text-xs text-gray-400 dark:text-gray-500"
+        >
+          ▾
+        </span>
       </summary>
       <form
         method="post"

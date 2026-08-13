@@ -25,7 +25,12 @@ import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
-import { SubmissionDetailView, action, loader } from "./admin.submission";
+import {
+  SubmissionDetailView,
+  action,
+  loader,
+  submissionLoaderPayload,
+} from "./admin.submission";
 import { loader as listLoader } from "./admin.submissions";
 import { loader as csvLoader } from "./admin.submissions.scores.csv";
 
@@ -114,7 +119,7 @@ async function detail(id: string) {
     `https://x.test/admin/submissions/${id}?tab=pending`,
     fixture.adminId,
   );
-  return loader(asLoaderArgs(request, id));
+  return submissionLoaderPayload(await loader(asLoaderArgs(request, id)));
 }
 
 async function post(id: string, fields: Record<string, string>, personId = fixture.adminId) {
@@ -313,6 +318,7 @@ describe("the triage card says who wrote it", () => {
     // caught it. `disabled=""` is what React emits for the real attribute.
     expect(html).toContain('data-testid="ai-triage-rerun"');
     expect(html).toMatch(/data-testid="ai-triage-rerun"[^>]*\sdisabled=""/);
+    expect(html).toMatch(/data-testid="ai-triage-dismiss"[^>]*\sdisabled=""/);
   });
 
   it("must-fire: the disabled 'Run again' explains itself instead of just greying out", async () => {
@@ -353,6 +359,8 @@ describe("the triage card says who wrote it", () => {
     expect(html).not.toContain("AI triage unavailable in this deployment");
     expect(html).not.toContain("ai-triage-unavailable-note");
     expect(html).not.toMatch(/data-testid="ai-triage-rerun"[^>]*\sdisabled=""/);
+    expect(html).toContain('data-testid="ai-triage-dismiss"');
+    expect(html).not.toMatch(/data-testid="ai-triage-dismiss"[^>]*\sdisabled=""/);
   });
 });
 

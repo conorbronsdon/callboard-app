@@ -41,7 +41,10 @@ import {
   type ReviewActionData,
 } from "./admin.reviews";
 import { loader as speakersLoader } from "./admin.speakers";
-import { loader as submissionLoader } from "./admin.submission";
+import {
+  loader as submissionLoader,
+  submissionLoaderPayload,
+} from "./admin.submission";
 import { action as tasksAction, loader as tasksLoader } from "./admin.tasks";
 import { action as reviewerAction, loader as reviewerLoader } from "./review.index";
 import { loader as portalSubmissionsLoader } from "./portal.submissions";
@@ -640,13 +643,15 @@ describe("CFP-11 — the organizer reads reviewer output", () => {
 
   it("must fire: another reviewer's per-criterion scores and comment reach the organizer", async () => {
     const reviewer = await reviewerWhoScored();
-    const data = await submissionLoader(
-      args(
-        await signedInGet(
-          `https://x.test/admin/submissions/${fixture.abstractIds[3]}`,
-          fixture.adminId,
+    const data = submissionLoaderPayload(
+      await submissionLoader(
+        args(
+          await signedInGet(
+            `https://x.test/admin/submissions/${fixture.abstractIds[3]}`,
+            fixture.adminId,
+          ),
+          { id: fixture.abstractIds[3] },
         ),
-        { id: fixture.abstractIds[3] },
       ),
     );
 

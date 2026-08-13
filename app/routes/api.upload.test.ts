@@ -59,6 +59,7 @@ let bucket: ReturnType<typeof createTestBucket>;
 
 /** A person on neither session — the IDOR this route exists to prevent. */
 const OUTSIDER_ID = "13000000-0000-4000-8000-000000000001";
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
 
 beforeEach(async () => {
   ctx = installTestDb();
@@ -95,6 +96,19 @@ async function upload(
   form.append("ownerType", fields.ownerType);
   form.append("ownerId", fields.ownerId);
   form.append("purpose", fields.purpose ?? "document");
+
+  return (await action(args(new Request(url, { method: "POST", headers: { cookie }, body: form })))) as Response;
+}
+
+async function uploadHeadshot(personId: string, ownerId: string): Promise<Response> {
+  const url = "https://x.test/api/upload";
+  const cookie = (await createLoginSession(new Request(url), personId)).split(";")[0];
+
+  const form = new FormData();
+  form.append("file", new File([PNG_BYTES], "face.png", { type: "image/png" }));
+  form.append("ownerType", "person");
+  form.append("ownerId", ownerId);
+  form.append("purpose", "headshot");
 
   return (await action(args(new Request(url, { method: "POST", headers: { cookie }, body: form })))) as Response;
 }
@@ -317,5 +331,50 @@ describe("a person upload is unchanged", () => {
     });
     expect(response.status).toBe(403);
     expect(bucket.objects.size).toBe(0);
+  });
+});
+
+describe("an admin person upload is scoped to the event roster", () => {
+  it("must fire: an admin cannot attach a headshot to an off-roster person", async () => {
+    const response = await uploadHeadshot(fixture.adminId, OUTSIDER_ID);
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: "You cannot attach a file to that record.",
+    });
+    expect(await ctx.db.select().from(uploads)).toHaveLength(0);
+    expect(bucket.objects.size).toBe(0);
+    expect(
+      (await ctx.db.query.people.findFirst({ where: eq(people.id, OUTSIDER_ID) }))?.headshotKey,
+    ).toBeNull();
+  });
+
+  it("must NOT fire: an admin may attach a headshot to a person on the event roster", async () => {
+    const speakerId = fixture.speakerIds[0];
+    const response = await uploadHeadshot(fixture.adminId, speakerId);
+
+    expect(response.status).toBe(200);
+    expect(
+      (await ctx.db.query.people.findFirst({ where: eq(people.id, speakerId) }))?.headshotKey,
+    ).not.toBeNull();
+  });
+
+  it("must NOT fire: a speaker's own headshot remains roster-free", async () => {
+    // The self path must be completely untouched by the admin-side roster requirement.
+    const speakerId = fixture.speakerIds[1];
+    const response = await uploadHeadshot(speakerId, speakerId);
+
+    expect(response.status).toBe(200);
+    expect(
+      (await ctx.db.query.people.findFirst({ where: eq(people.id, speakerId) }))?.headshotKey,
+    ).not.toBeNull();
+  });
+
+  it("must NOT fire: an admin's own headshot remains roster-free", async () => {
+    // Self-upload is checked before the admin branch, so organizers are not roster-gated.
+    const response = await uploadHeadshot(fixture.adminId, fixture.adminId);
+
+    expect(response.status).toBe(200);
   });
 });

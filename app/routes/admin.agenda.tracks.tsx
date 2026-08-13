@@ -148,6 +148,10 @@ export interface TracksData {
   notice: string | null;
 }
 
+export function meta() {
+  return [{ title: "Tracks — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs): Promise<TracksData> {
   await requireAdmin(request);
   const event = await currentEvent(request);

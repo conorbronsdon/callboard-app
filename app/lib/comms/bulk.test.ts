@@ -12,9 +12,9 @@ import {
 
 const base = (overrides: Partial<BulkRecipient> = {}): BulkRecipient => ({
   personId: "p1",
-  email: "priya@example.com",
-  fullName: "Priya Raman",
-  firstName: "Priya",
+  email: "ingrid@example.com",
+  fullName: "Ingrid Falconer",
+  firstName: "Ingrid",
   eventRole: "speaker",
   sessions: [],
   openTasks: [],
@@ -84,7 +84,7 @@ describe("buildRecipientContext", () => {
       built.context,
     );
 
-    expect(rendered.subject).toBe("Hi Priya — 1 task");
+    expect(rendered.subject).toBe("Hi Ingrid — 1 task");
     expect(rendered.text).toContain("accepted session");
     expect(rendered.text).toContain("Upload your slides");
     expect(rendered.text).toContain("Tue, Apr 20, 2027");

@@ -50,15 +50,39 @@ describe("upload global person owner boundary", () => {
     ).resolves.toBe(false);
   });
 
-  it("must NOT fire: a global admin may attach to an existing person outside selected-event membership", async () => {
-    // No eventPeople row links this person to OTHER_EVENT_ID. That is
-    // intentional: people/profile assets and admin authority are global.
+  it("must fire: an admin cannot attach to a person outside selected-event membership", async () => {
+    // The API and admin UI must scope person writes identically: authority is
+    // global, but the event it acts through must include the person.
     await expect(
       mayAttachTo(
         { id: ADMIN_ID, role: "admin" },
         OTHER_EVENT_ID,
         "person",
         fixture.speakerIds[0],
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("must NOT fire: an admin may attach to a person on the selected event's roster", async () => {
+    await expect(
+      mayAttachTo(
+        { id: ADMIN_ID, role: "admin" },
+        EVENT_ID,
+        "person",
+        fixture.speakerIds[0],
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("must NOT fire: an admin attaching to themselves is never roster-gated", async () => {
+    // OTHER_EVENT_ID has no eventPeople rows, so this proves self-access does
+    // not pass through the roster requirement by accident.
+    await expect(
+      mayAttachTo(
+        { id: ADMIN_ID, role: "admin" },
+        OTHER_EVENT_ID,
+        "person",
+        ADMIN_ID,
       ),
     ).resolves.toBe(true);
   });

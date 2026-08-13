@@ -47,6 +47,10 @@ export interface ApiKeysAction {
 const fmt = (value: Date | null | undefined) =>
   value ? value.toISOString().slice(0, 16).replace("T", " ") : null;
 
+export function meta() {
+  return [{ title: "API keys — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs): Promise<ApiKeysData> {
   await requireAdmin(request);
   const event = await currentEvent(request);

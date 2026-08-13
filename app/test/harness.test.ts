@@ -256,7 +256,12 @@ describe("demo seed", () => {
   });
 
   it("MUST NOT FIRE: the revision block cannot shrink behind a positive-only check", () => {
-    expect(sessionRevisionCounts().total).toBe(44);
+    // 44 abstract/programme/event-2 revisions, + 7 for the invited programme rows
+    // (sp5–sp11) added when the demo agenda grew past four sessions. The seed
+    // throws at build time if the rows and this constant disagree, so the number
+    // is bound to reality; pinning it here is what stops the whole block being
+    // quietly shrunk while the two positive checks above stay green.
+    expect(sessionRevisionCounts().total).toBe(51);
   });
 
   it("ships conditional logic on the main CFP form", () => {
@@ -664,7 +669,17 @@ describe("demo seed", () => {
     expect(body).toContain("composed_into_session_id");
     expect(body).toMatch(/event2ProgrammeIds\[index\]/);
     expect(body).toMatch(/event2AbstractIds\[abstractIndex\]/);
-    // And no stray copy left outside the loop double-linking row 0.
-    expect([...SEED_SOURCE.matchAll(/composed_into_session_id/g)]).toHaveLength(2);
+    // And no stray copy left outside a loop double-linking row 0. Three sites,
+    // each inside a forEach over its own programme array: COMPOSED (main event,
+    // scheduled), ADDITIONAL_PROGRAMME (main event, invited + the accepted
+    // abstract that composes unscheduled), and EVENT2_PROGRAMME. A fourth
+    // occurrence means someone hand-wrote a statement outside a loop again.
+    expect([...SEED_SOURCE.matchAll(/composed_into_session_id/g)]).toHaveLength(3);
+    expect(SEED_SOURCE.match(/COMPOSED\.forEach\(([\s\S]*?)\n\}\);/)?.[1] ?? "").toContain(
+      "composed_into_session_id",
+    );
+    expect(
+      SEED_SOURCE.match(/ADDITIONAL_PROGRAMME\.forEach\(([\s\S]*?)\n\}\);/)?.[1] ?? "",
+    ).toContain("composed_into_session_id");
   });
 });

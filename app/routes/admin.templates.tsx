@@ -51,6 +51,10 @@ export function templatesUrl(key?: string | null, suffix = ""): string {
   return `/admin/templates${key ? `?key=${encodeURIComponent(key)}` : ""}${suffix}`;
 }
 
+export function meta() {
+  return [{ title: "Templates — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs): Promise<TemplatesData> {
   await requireAdmin(request);
   const event = await currentEvent(request);

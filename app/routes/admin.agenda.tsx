@@ -21,7 +21,7 @@
  * `renderToStaticMarkup` with no router context, which is what makes the
  * zero-state and seeded-state render tests real.
  */
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { redirect } from "react-router";
 
 import { AgendaBoard, DndAgendaBoard, DROP_FORM_ID } from "~/components/agenda-board";
@@ -29,11 +29,16 @@ import type { BoardSession } from "~/components/agenda-board";
 import { ClientOnly } from "~/components/ClientOnly";
 import { buttonClass } from "~/components/portal-ui";
 import { eyebrowClass, linkClass, PageHeader } from "~/components/shell";
-import { getDb } from "~/db/client.server";
+import { chunkForBind, getDb } from "~/db/client.server";
 import { rooms as roomsTable, sessions } from "~/db/schema";
 import { requireAdmin } from "~/lib/auth/auth.server";
 import { planAutoPlacement } from "~/lib/agenda/autoplace";
 import { conflictLabel } from "~/lib/agenda/conflicts";
+import {
+  abstractIdsForSessions,
+  isSessionInformed,
+  partitionByInformed,
+} from "~/lib/agenda/informed-gate.server";
 import { conflictsInvolving, loadProgramme } from "~/lib/agenda/programme.server";
 import { notifyScheduleChange } from "~/lib/comms/schedule-invite.server";
 import {
@@ -52,6 +57,8 @@ import {
   timeKeyOf,
 } from "~/lib/agenda/schedule";
 import { currentEvent } from "~/lib/event.server";
+import { appUrl } from "~/lib/env.server";
+import { notifyDecisions } from "~/lib/review/decision-notify.server";
 import type { Route } from "./+types/admin.agenda";
 
 export const AGENDA_VIEWS = ["list", "day", "week", "track", "room", "conflicts"] as const;
@@ -134,12 +141,17 @@ export interface AgendaData {
   };
   notice: string | null;
   warning: string | null;
+  heldForUninformed: { id: string; title: string }[];
 }
 
 export function agendaUrl(view: AgendaView, day: string | null, extra = ""): string {
   const params = new URLSearchParams({ view });
   if (day) params.set("day", day);
   return `/admin/agenda?${params.toString()}${extra}`;
+}
+
+export function meta() {
+  return [{ title: "Agenda — callboard admin" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs): Promise<AgendaData> {
@@ -163,6 +175,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<AgendaData>
       counts: { total: 0, scheduled: 0, unscheduled: 0, published: 0, conflicts: 0 },
       notice: null,
       warning: null,
+      heldForUninformed: [],
     };
   }
 
@@ -226,6 +239,15 @@ export async function loader({ request }: Route.LoaderArgs): Promise<AgendaData>
 
   const scheduled = rows.filter((row) => row.startsAt !== null).length;
   const published = rows.filter((row) => row.isPublic).length;
+  const pendingRows = rows.filter((row) => !row.isPublic && row.startsAt !== null);
+  const { held: heldIds } = await partitionByInformed(
+    getDb(),
+    pendingRows.map((row) => row.id),
+  );
+  const heldSet = new Set(heldIds);
+  const heldForUninformed = pendingRows
+    .filter((row) => heldSet.has(row.id))
+    .map((row) => ({ id: row.id, title: row.title }));
 
   const moved = url.searchParams.get("moved");
   const publishedParam = url.searchParams.get("published");
@@ -274,6 +296,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<AgendaData>
     },
     notice,
     warning: url.searchParams.get("warn") === "conflict" ? "conflict" : null,
+    heldForUninformed,
   };
 }
 
@@ -464,10 +487,17 @@ export async function action({ request }: Route.ActionArgs) {
     if (!target) return { ok: false as const, error: "That session is not on this programme." };
 
     const published = String(formData.get("published") ?? "") === "1";
+    const override = String(formData.get("override") ?? "") === "1";
     if (published && !target.startsAt) {
       return {
         ok: false as const,
         error: "Give the session a time before publishing it to the public schedule.",
+      };
+    }
+    if (published && !override && !(await isSessionInformed(db, sessionId))) {
+      return {
+        ok: false as const,
+        error: "Held: the speaker hasn't been told yet. Send the decision letter, or publish anyway.",
       };
     }
 
@@ -507,29 +537,29 @@ export async function action({ request }: Route.ActionArgs) {
         ),
       );
 
-    if (pending.length > 0) {
-      await db
-        .update(sessions)
-        .set({ isPublic: true, publishedAt: new Date(), updatedAt: new Date() })
-        .where(
-          and(
-            eq(sessions.eventId, event.id),
-            eq(sessions.isAbstract, false),
-            eq(sessions.isPublic, false),
-            isNotNull(sessions.startsAt),
-            isNull(sessions.deletedAt),
-          ),
-        );
+    const partition = await partitionByInformed(
+      db,
+      pending.map((row) => row.id),
+    );
+
+    if (partition.informed.length > 0) {
+      const now = new Date();
+      for (const chunk of chunkForBind(partition.informed, 1)) {
+        await db
+          .update(sessions)
+          .set({ isPublic: true, publishedAt: now, updatedAt: now })
+          .where(inArray(sessions.id, chunk));
+      }
 
       // WS5 seam. Publishing the programme IS the announcement — a session that
       // went public without its speaker being told is the divergence this whole
       // lane exists to prevent. Each send is individually guarded, and a session
       // whose speakers already hold an invite gets an update, not a duplicate.
-      for (const row of pending) {
+      for (const sessionId of partition.informed) {
         await notifyScheduleChange({
           request,
           event,
-          sessionId: row.id,
+          sessionId,
           change: "published",
           before: { startsAt: null, endsAt: null, isPublic: false },
         });
@@ -543,14 +573,50 @@ export async function action({ request }: Route.ActionArgs) {
     // This runs AFTER the write and changes nothing about what gets published:
     // whether publish should *gate* on conflicts is a separate, open question.
     const params = new URLSearchParams();
-    params.set("published", String(pending.length));
-    if (pending.length > 0) {
+    params.set("published", String(partition.informed.length));
+    params.set("held", String(partition.held.length));
+    if (partition.informed.length > 0) {
       const after = await loadProgramme(event.id);
-      const clashed = pending.some(
-        (row) => conflictsInvolving(after.conflicts, row.id).length > 0,
+      const clashed = partition.informed.some(
+        (sessionId) => conflictsInvolving(after.conflicts, sessionId).length > 0,
       );
       if (clashed) params.set("warn", "conflict");
     }
+    return redirect(agendaUrl(view, returnDay, `&${params.toString()}`));
+  }
+
+  if (intent === "send-decision-letters") {
+    /*
+     * Deliberately NOT filtered by `startsAt`, unlike the publish paths. The
+     * decision letter is owed at accept time, not at schedule time, and a
+     * freshly committed session is composed UNSCHEDULED — so gating the send on
+     * having a slot would make the "retry failed letters" button on the
+     * submissions banner a no-op for exactly the letters that just failed.
+     */
+    const pending = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.eventId, event.id),
+          eq(sessions.isAbstract, false),
+          eq(sessions.isPublic, false),
+          isNull(sessions.deletedAt),
+        ),
+      );
+    const { held } = await partitionByInformed(db, pending.map((row) => row.id));
+    const abstractIds = await abstractIdsForSessions(db, held);
+    const result = await notifyDecisions({
+      eventId: event.id,
+      accepted: abstractIds,
+      declined: [],
+      origin: appUrl(request),
+      db,
+    });
+    const params = new URLSearchParams({
+      sent: String(result.notified),
+      failed: String(result.failed),
+    });
     return redirect(agendaUrl(view, returnDay, `&${params.toString()}`));
   }
 
@@ -1169,6 +1235,8 @@ export function AgendaScreen(data: AgendaData) {
     );
   }
 
+  const heldForUninformed = data.heldForUninformed ?? [];
+
   return (
     <div>
       {/*
@@ -1284,6 +1352,42 @@ export function AgendaScreen(data: AgendaData) {
         <p className="mb-3 rounded border border-gray-300 bg-gray-50 p-2 text-sm dark:border-gray-700 dark:bg-gray-900">
           {data.notice}
         </p>
+      ) : null}
+      {heldForUninformed.length > 0 ? (
+        <section className="mb-3 rounded border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          <p className="font-medium">
+            These scheduled sessions are held until their speakers are informed:
+          </p>
+          <ul className="mt-2 space-y-2">
+            {heldForUninformed.map((session) => (
+              <li
+                key={session.id}
+                className="flex flex-wrap items-center justify-between gap-2"
+              >
+                <span>{session.title}</span>
+                <form method="post">
+                  <input type="hidden" name="intent" value="set-published" />
+                  <input type="hidden" name="sessionId" value={session.id} />
+                  <input type="hidden" name="published" value="1" />
+                  <input type="hidden" name="override" value="1" />
+                  <input type="hidden" name="view" value={data.view} />
+                  <input type="hidden" name="returnDay" value={data.day ?? ""} />
+                  <button type="submit" className={GHOST}>
+                    Publish anyway
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+          <form method="post" className="mt-3">
+            <input type="hidden" name="intent" value="send-decision-letters" />
+            <input type="hidden" name="view" value={data.view} />
+            <input type="hidden" name="returnDay" value={data.day ?? ""} />
+            <button type="submit" className={BUTTON}>
+              Send decision letters now
+            </button>
+          </form>
+        </section>
       ) : null}
       {data.warning === "conflict" ? (
         <p

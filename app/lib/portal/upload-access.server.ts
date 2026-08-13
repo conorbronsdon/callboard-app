@@ -9,14 +9,15 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "~/db/client.server";
 import { people, sessionParticipants, sessions } from "~/db/schema";
 import { isAdmin } from "~/lib/portal-access";
+import { isOnEventRoster } from "~/lib/speakers/roster.server";
 
 /**
  * May this person attach a file to this record?
  *
- * People and their profile assets are deployment-global; eventPeople records
- * event participation, not ownership of the person. The selected event on a
- * person upload is therefore context/quota attribution. Speakers remain
- * self-owned, while admins may act on any existing global person.
+ * People and their profile assets are deployment-global, and admin authority
+ * remains the global people.role. But an admin acting on another person acts
+ * through an event, so that person must be on its roster, matching the admin
+ * speaker page. Self-uploads are never roster-scoped.
  *
  * Sessions are event-owned. A session upload must resolve to the selected event;
  * speakers must also participate. Admins bypass participation, but never that
@@ -29,15 +30,18 @@ export async function mayAttachTo(
   ownerId: string,
 ): Promise<boolean> {
   if (ownerType === "person") {
-    if (!isAdmin(viewer)) return ownerId === viewer.id;
+    if (ownerId === viewer.id) return true;
+    if (!isAdmin(viewer)) return false;
 
     // Admin authority is global, but Decision #14 still requires a real owner:
     // never create upload metadata pointing at a nonexistent person id.
-    const owner = await getDb().query.people.findFirst({
+    const db = getDb();
+    const owner = await db.query.people.findFirst({
       where: eq(people.id, ownerId),
       columns: { id: true },
     });
-    return Boolean(owner);
+    if (!owner) return false;
+    return isOnEventRoster(eventId, ownerId, db);
   }
 
   if (isAdmin(viewer)) {

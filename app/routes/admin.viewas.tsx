@@ -79,6 +79,10 @@ export function ReviewerPreviewTable({
   );
 }
 
+export function meta() {
+  return [{ title: "View as — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const event = await requireCurrentEvent(request);

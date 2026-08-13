@@ -15,6 +15,7 @@ type Decision = "accepted" | "declined";
 
 interface DecisionRecipient {
   abstractId: string;
+  composedIntoSessionId: string | null;
   friendlyId: string | null;
   title: string;
   personId: string;
@@ -39,6 +40,7 @@ export interface NotifyDecisionsOptions {
 export interface NotifyDecisionsResult {
   notified: number;
   failed: number;
+  informed: number;
 }
 
 /** Convert a thrown provider failure into MailResult so withCommLog can record it. */
@@ -97,6 +99,7 @@ async function loadRecipients(
         db
           .select({
             abstractId: sessions.id,
+            composedIntoSessionId: sessions.composedIntoSessionId,
             friendlyId: sessions.friendlyId,
             title: sessions.title,
             personId: people.id,
@@ -140,7 +143,7 @@ async function loadRecipients(
 export async function notifyDecisions(
   options: NotifyDecisionsOptions,
 ): Promise<NotifyDecisionsResult> {
-  const result: NotifyDecisionsResult = { notified: 0, failed: 0 };
+  const result: NotifyDecisionsResult = { notified: 0, failed: 0, informed: 0 };
   try {
     const db = options.db ?? getDb();
     const now = options.now ?? new Date();
@@ -167,6 +170,17 @@ export async function notifyDecisions(
       return result;
     }
     const base = nonThrowing(options.mailer ?? getMailer());
+    const acceptedOutcomes = new Map<
+      string,
+      { composedSessionId: string | null; allSucceeded: boolean }
+    >();
+    for (const recipient of recipients) {
+      if (recipient.decision !== "accepted") continue;
+      acceptedOutcomes.set(recipient.abstractId, {
+        composedSessionId: recipient.composedIntoSessionId,
+        allSucceeded: true,
+      });
+    }
 
     for (const decision of ["accepted", "declined"] as const) {
       const decisionRecipients = recipients.filter((row) => row.decision === decision);
@@ -180,6 +194,12 @@ export async function notifyDecisions(
       } catch (error) {
         console.error(`[callboard] could not load ${templateKey}:`, error);
         result.failed += decisionRecipients.length;
+        if (decision === "accepted") {
+          for (const recipient of decisionRecipients) {
+            const outcome = acceptedOutcomes.get(recipient.abstractId);
+            if (outcome) outcome.allSucceeded = false;
+          }
+        }
         continue;
       }
 
@@ -221,8 +241,31 @@ export async function notifyDecisions(
           text: rendered.text,
         });
         if (sent.ok) result.notified += 1;
-        else result.failed += 1;
+        else {
+          result.failed += 1;
+          if (recipient.decision === "accepted") {
+            const outcome = acceptedOutcomes.get(recipient.abstractId);
+            if (outcome) outcome.allSucceeded = false;
+          }
+        }
       }
+    }
+
+    const informedSessionIds = [
+      ...new Set(
+        [...acceptedOutcomes.values()].flatMap((outcome) =>
+          outcome.allSucceeded && outcome.composedSessionId
+            ? [outcome.composedSessionId]
+            : [],
+        ),
+      ),
+    ];
+    for (const chunk of chunkForBind(informedSessionIds, 1)) {
+      await db
+        .update(sessions)
+        .set({ speakerInformedAt: now })
+        .where(inArray(sessions.id, chunk));
+      result.informed += chunk.length;
     }
   } catch (error) {
     console.error("[callboard] decision notifications failed after queue commit:", error);

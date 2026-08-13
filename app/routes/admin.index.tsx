@@ -26,6 +26,10 @@ import type { Route } from "./+types/admin.index";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
+export function meta() {
+  return [{ title: "Dashboard — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const event = await currentEvent(request);

@@ -43,6 +43,10 @@ async function rosterEmails(db: DB, eventId: string): Promise<Set<string>> {
   return new Set(rows.map((row) => normalizeEmail(row.email)));
 }
 
+export function meta() {
+  return [{ title: "Speakers — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const event = await currentEvent(request);

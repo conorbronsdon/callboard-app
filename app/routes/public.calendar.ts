@@ -74,6 +74,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
           })
     : await loadRows(null);
 
+  if (hasSelection && requestedIds.length > 0 && scheduled.length === 0) {
+    throw new Response("Session not found", { status: 404 });
+  }
+
   const sessionIds = scheduled.map((row) => row.id);
   const participantRows = sessionIds.length
     ? (

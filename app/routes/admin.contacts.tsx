@@ -114,6 +114,10 @@ export interface ContactsData {
   tag: string;
 }
 
+export function meta() {
+  return [{ title: "Contacts — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs): Promise<ContactsData> {
   await requireAdmin(request);
   const url = new URL(request.url);
@@ -530,7 +534,16 @@ export async function action({ request }: Route.ActionArgs) {
         links: winnerLinks,
         travelNotes: chooseText(primary.travelNotes, duplicate.travelNotes),
       }).where(eq(people.id, primaryId)),
-      db.update(people).set({ mergedInto: primaryId }).where(eq(people.id, duplicateId)),
+      /*
+       * DECISIONS #66 binds consent to the key. A tombstone no longer owns the
+       * key, so retaining either half leaves a stale pointer and a true flag
+       * with no artifact under it.
+       */
+      db.update(people).set({
+        mergedInto: primaryId,
+        headshotKey: null,
+        photoPublishable: false,
+      }).where(eq(people.id, duplicateId)),
     ];
     await db.batch(statements as unknown as BatchArgument);
     const memberships = membershipRows[0]?.count ?? 0;

@@ -54,7 +54,7 @@ test("an organizer captures a pitch that arrived by email, and nothing is sent",
   await expect(seeded).toContainText("Ada Organiser");
   await expect(seeded).toContainText("from Email");
   // The paste is stored verbatim, so the email's own sign-off is on the page.
-  await expect(page.getByTestId("detail-abstract")).toContainText("— Priya");
+  await expect(page.getByTestId("detail-abstract")).toContainText("— Ingrid");
 
   await page.goto("/admin/submissions");
 

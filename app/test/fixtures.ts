@@ -294,6 +294,7 @@ export async function seedOtherEvent(db: DB): Promise<OtherEventFixture> {
     endsAt: new Date(FIXTURE_NOW + 120 * DAY + 10 * 3_600_000 + 25 * 60_000),
     isPublic: true,
     publishedAt: createdAt,
+    speakerInformedAt: new Date(FIXTURE_NOW),
   });
   await db.insert(sessionParticipants).values({
     sessionId: programSessionId,
@@ -597,6 +598,7 @@ export async function seedDemoFixture(db: DB): Promise<DemoFixture> {
       capacity: 800,
       isPublic: true,
       publishedAt: new Date(FIXTURE_NOW),
+      speakerInformedAt: new Date(FIXTURE_NOW),
     })),
   );
   await db.insert(sessionParticipants).values(

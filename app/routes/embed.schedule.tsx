@@ -20,6 +20,11 @@ import { resolveEmbedOptions } from "~/lib/embeds.server";
 import { EmbedShell } from "~/components/embed-shell";
 import type { Route } from "./+types/embed.schedule";
 
+export function meta({ loaderData }: Route.MetaArgs) {
+  const event = loaderData?.event?.name;
+  return [{ title: event ? `Schedule — ${event}` : "Schedule — callboard" }];
+}
+
 export async function loader({ params, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const { theme, track, accent, density } = await resolveEmbedOptions(

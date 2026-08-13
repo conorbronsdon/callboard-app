@@ -112,7 +112,7 @@ export const API_OPERATIONS: ApiOperation[] = [
     operationId: "createSession",
     summary: "Create a session or abstract",
     description:
-      "`title` is the only required field. `is_abstract: true` creates a CFP submission and is immutable afterwards — an abstract never becomes a session, it gets composed into one.",
+      "`title` is the only required field. `is_abstract: true` creates a CFP submission and is immutable afterwards — an abstract never becomes a session, it gets composed into one. `is_public` is update-only.",
     scope: "write:sessions",
     requestExample: {
       title: "Evals that predict production failures",
@@ -128,7 +128,7 @@ export const API_OPERATIONS: ApiOperation[] = [
     operationId: "updateSession",
     summary: "Update a session",
     description:
-      "Partial update. Send the `updated_at` you last read to get optimistic concurrency: a `409` means somebody else wrote first. Omit it to force the write.",
+      "Partial update. Send the `updated_at` you last read to get optimistic concurrency: a `409` means somebody else wrote first. Omit it to force the write. Flipping `is_public` true requires the speaker's decision letter to have been sent, or `publish_override: true`.",
     scope: "write:sessions",
     requestExample: { status: "accepted", updated_at: "2026-08-06T12:00:00.000Z" },
     responseExample: SESSION_EXAMPLE,

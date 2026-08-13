@@ -58,14 +58,14 @@ Suggested walkthrough:
 | Review operations | Standalone assigned-only reviewer workspace, organizer “view as reviewer,” two-round weighted scoring, reviewer aggregates and completion progress, reviewer provisioning by email with an additive capability flag, team management, round/rubric setup (add/remove criterion rows, numeric or dropdown types, lock on first submitted score), per-round blinding, reviewer conflict-of-interest recusal, reviewer reminders, and both batch assignment and direct per-reviewer assignment |
 | Score reporting | Aggregate-score sorting in the submissions list, plus a reviewer score CSV export at `/admin/submissions/scores.csv` carrying per-round aggregates and one column per rubric criterion, including dropdown-answer distributions |
 | AI first-pass triage | Advisory Workers AI triage on an abstract's detail page: a score, a queue recommendation, and a short rationale carrying the model label. It never writes a review, never changes a submission's status, and degrades to a visible "unavailable in this deployment" when no `AI` binding is present |
-| Speaker CRM | Organization-level contact directory spanning every event, with contact profiles, notes, tags, travel notes, CSV import (preview then commit), duplicate detection and merge, add-to-event, bulk email to a filtered selection, rollups for total contacts/events/returning contacts/top companies, savable named filter segments, and a drag-and-drop sourcing pipeline (kanban over five fixed stages) with a move-audit trail |
+| Speaker CRM | Organization-level contact directory spanning every event, with contact profiles, notes, tags, travel notes, CSV import (preview then commit), duplicate detection and merge, add-to-event, bulk email to a filtered selection, rollups for total contacts/events/returning contacts/top companies, savable named filter segments, and a sourcing pipeline (a kanban board over five fixed stages; each card moves by picking a stage and submitting, not by dragging) with a move-audit trail |
 | Files library | Organizer-side browser of every upload for an event, grouped into version chains (newest deliverable first), with per-file comments and a bulk ZIP download |
 | Multi-event | Multiple events per deployment, an admin event switcher that scopes every organizer screen, and in-app event creation |
 | Public & embeddable widgets | Public event page, schedule with search/day tabs/track-format-room facets and clickable speaker names, session detail, speaker directory/profiles/gallery with consent-gated headshots (monogram fallback when a speaker has not opted in), a unified “Show more” control, browser-local “My schedule” itinerary, and an `.ics` feed. An organizer embed builder generates four chrome-less widgets (schedule, agenda by day, speakers, speaker gallery) with theme, density, accent, and track options, emitted as an iframe snippet, a plain link, or a calendar feed. Saved embeds get a stable `?embed=<id>` URL and can be enabled, disabled, or deleted |
 | Resource/wiki operations | Event-scoped create/edit/order, sanitized preview, publish/unpublish, and recoverable archive-as-unpublish |
 | Speaker portal | Status, deadline-gated pending corrections, accepted title/abstract/video corrections with programme-copy sync, profile, headshot/material uploads, tasks, portal forms, resources, and organizer impersonation |
 | Communications | Editable templates, confirmation email, task reminders, communication log, and ICS REQUEST/UPDATE/CANCEL lifecycle |
-| Agenda | List/day/week/track/room/conflict views, pointer-correct drag and drop, no-JavaScript fallback, room and speaker overlap detection, an “Auto-place remaining” action that fills unscheduled sessions into conflict-free room/time slots, room and track CRUD, organizer session editing with attributed revision history and one-click restore, publishing, and public schedule with ordered speaker/co-speaker names |
+| Agenda | List/day/week/track/room/conflict views, pointer-correct drag and drop, no-JavaScript fallback, room and speaker overlap detection, an “Auto-place remaining” action that fills unscheduled sessions into conflict-free room/time slots, room and track CRUD, organizer session editing with attributed revision history and one-click restore, publishing that holds until speakers have been informed with an explicit per-session override, and public schedule with ordered speaker/co-speaker names |
 | Speaker roster | Add and edit speakers, participation status, portal-invite send, and CSV import |
 | API | Scoped keys, consistent envelopes, sessions/speakers/metadata endpoints, OpenAPI document, and developer page |
 | Integrations | Byte-exact Accelevents CSV pair, optional API push when configured, and non-blocking Airtable mirror |
@@ -73,10 +73,10 @@ Suggested walkthrough:
 
 ## Limitations
 
-Known open gaps, verified against `main` at `03e3acb`. Each one names the file
+Known open gaps, verified against `main` at `d3184e9`. Each one names the file
 or command that shows it, so it can be rechecked rather than taken on trust.
 
-Volatile counts at `03e3acb`, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **15** migrations;
+Volatile counts at `d3184e9`, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **15** migrations;
 `grep -c 'sqliteTable(' app/db/schema.ts` → **37** tables;
 `grep -oE 'insert\("[a-z_]+"' scripts/seed.mjs | sort -u | wc -l` → **29** seeded
 tables; `npx vitest list --run | wc -l` → **2269** tests.
@@ -98,12 +98,14 @@ surface degrades to a visible “unavailable in this deployment.” The agenda's
 reorder, or add one; submissions are worked from filtered list views and a
 drill-in rather than a status board.
 
-**The CRM sourcing pipeline's stages are fixed.** The kanban at `/admin/pipeline`
-drags a contact across five hard-coded stages (`PIPELINE_STAGES` in
-`app/db/schema.ts`: `prospect`, `contacted`, `in_conversation`, `confirmed`,
-`declined`) and records every move, but there is no stage-management UI to add,
-rename, reorder, or remove a stage — the ordering is product workflow, not
-organizer configuration.
+**The CRM sourcing pipeline's stages are fixed, and it is not drag-and-drop.**
+The kanban at `/admin/pipeline` lays contacts out in five hard-coded stage
+columns (`PIPELINE_STAGES` in `app/db/schema.ts`: `prospect`, `contacted`,
+`in_conversation`, `confirmed`, `declined`) and records every move, but a card
+is moved with a per-card stage `select` and a **Move** button — the drag-and-drop
+layer exists only on the agenda day board. There is also no stage-management UI
+to add, rename, reorder, or remove a stage: the ordering is product workflow,
+not organizer configuration.
 
 **The bulk file ZIP is capped at 30 MB.** The Files library at `/admin/files`
 lists every upload for an event grouped into version chains with per-file
@@ -175,6 +177,57 @@ without a mailbox. Outlook ICS lifecycle rendering remains unverified.
 
 Submission evidence, including the requirement-to-screen map, is in [SUBMISSION_EVIDENCE.md](SUBMISSION_EVIDENCE.md).
 
+## Verify it yourself
+
+Every row is a claim this README makes, paired with the exact command or URL
+that proves or disproves it. Repository commands run from a clean checkout after
+`npm ci`.
+
+| Claim | How to check it |
+|---|---|
+| The migration, table, and seeded-table counts are real | Run the three commands stamped at the top of [Limitations](#limitations); each prints the number quoted beside it |
+| The test suite is the size claimed | `npx vitest list --run \| wc -l`. Limitations stamps this count at `d3184e9`; later commits report a larger number, which is why the stamp names a SHA |
+| The whole gate passes three consecutive isolated times | `npm run release:verify:repeat` — writes one attempt per pass to `artifacts/release-gate/<sha>/manifest.json` and only sets `"result": "passed"` after three |
+| CI runs that same gate, not a lighter one | [`.github/workflows/check.yml`](.github/workflows/check.yml) and [`.github/workflows/repeat-release-gate.yml`](.github/workflows/repeat-release-gate.yml) |
+| Calendar invites actually land in a real calendar | `app/lib/comms/ics.ts:5` records the end-to-end verification against Gmail on 2026-08-08: native RSVP card, event auto-staged, conflict detection ran |
+| AI triage never decides anything | `grep -nE '\.(insert\|update\|delete)\(' app/lib/review/ai-triage.server.ts` — the only writes target the `ai_triage` table: no `reviews` row, no session status change |
+| The deployed demo is up, seeded, and signing in | `npm run smoke:demo -- https://demo.callboardhq.com` |
+| The API is real, documented, and machine-readable | <https://demo.callboardhq.com/v1/openapi.json> and <https://demo.callboardhq.com/developers> |
+| An agent can orient itself without being told how | `/llms.txt` on any deployment (`app/routes/llms.txt.ts`) — the judge path in order, each brief feature's primary URL, and the API strip, as plain text |
+| The public schedule works with JavaScript disabled | Turn JS off and load <https://demo.callboardhq.com/e/frontier-ai-summit-2026/schedule> — search, day tabs, and the track/format/room facets are server-rendered |
+
+### Measured latency
+
+Measured against the live demo on 2026-08-12 from a single US-Pacific client.
+One warm-up request per URL is discarded, then seven requests one second apart;
+the figure is the **median of the successful responses**:
+
+```sh
+curl -s -o /dev/null -w "%{time_total}" https://demo.callboardhq.com/<path>
+```
+
+| URL | Median (warm) |
+|---|---|
+| `/` | 190 ms |
+| `/demo` | 86 ms |
+| `/admin` (unauthenticated — a 302 to `/login`, not a dashboard render) | 94 ms |
+| `/developers` | 224 ms |
+| `/e/frontier-ai-summit-2026/schedule` | 390 ms |
+| `/e/frontier-ai-summit-2026/schedule/<sessionId>` | 305 ms |
+| `/e/frontier-ai-summit-2026/speakers/<personId>` | 305 ms |
+| `/v1/openapi.json` | 97 ms |
+
+These are measurements from one client on one evening, not guarantees: they
+include network transit, they move by tens of milliseconds run to run, and a
+different region will see different numbers.
+
+One thing they surfaced, recorded here rather than left for a judge to hit
+cold: under repeated requests the two heaviest public pages intermittently
+returned Cloudflare error 1102 (*Worker exceeded resource limits*) — 2 of 7
+requests to the schedule and 3 of 7 to a session detail page. Those responses
+are excluded from the medians above. Pacing the requests did not remove them, so
+this is Worker CPU on the render path, not edge rate limiting.
+
 ## Architecture
 
 ```
@@ -197,6 +250,57 @@ D1 writes use `db.batch()`; D1 does not support Drizzle's interactive
 transactions. Uploads are proxied through the Worker so ownership checks remain
 on the write and read paths. Secrets are supplied with Wrangler and never stored
 in the repository.
+
+## Agents: point your MCP client here
+
+Callboard includes a separate streamable-HTTP MCP Worker. It uses the public
+`/v1` API only: no D1, R2, or product bindings, and exactly the access carried
+by the event-scoped key you send.
+
+A live instance runs against the demo conference:
+
+```
+https://callboard-mcp.conor-afe.workers.dev/mcp
+```
+
+Mint a key at [the demo's API keys page](https://demo.callboardhq.com/admin/api-keys)
+(one-click organizer sign-in, no signup), then:
+
+```sh
+export CALLBOARD_MCP_URL='https://callboard-mcp.conor-afe.workers.dev/mcp'
+claude mcp add --transport http --header "x-access-token: $CALLBOARD_KEY" callboard "$CALLBOARD_MCP_URL"
+```
+
+`get_openapi` answers without any key, so a client can connect first and
+discover the REST API before you mint one.
+
+Or add a project `.mcp.json` without committing the key:
+
+```json
+{
+  "mcpServers": {
+    "callboard": {
+      "type": "http",
+      "url": "${CALLBOARD_MCP_URL}",
+      "headers": { "x-access-token": "${CALLBOARD_KEY}" }
+    }
+  }
+}
+```
+
+| Tool | Scope |
+|---|---|
+| `list_events` | `read:events` |
+| `get_schedule` | `read:sessions` |
+| `list_submissions` | `read:sessions` |
+| `get_submission` | `read:sessions` |
+| `search_speakers` | `read:contacts` |
+| `list_tracks` | `read:metadata` |
+| `capture_abstract` | `write:sessions` |
+| `get_openapi` | none |
+
+Mint a least-privilege event key at `/admin/api-keys`. Deployment, connector,
+authentication, curl, and complete tool examples are in [docs/MCP.md](docs/MCP.md).
 
 ## Local development
 

@@ -106,9 +106,12 @@ test("a long seeded bio is collapsed behind Show more and expands in place", asy
  * check both directions of DECISIONS #66 on the real surface rather than
  * against a loader return.
  *
- * The seed makes this checkable on purpose: five published speakers carry a
+ * The seed makes this checkable on purpose: eight published speakers carry a
  * consented photo and Rina Okafor carries one with the flag off, so the same
- * page renders the feature and its gate side by side.
+ * page renders the feature and its gate side by side. (Eight, not the original
+ * five, since the programme grew to nine scheduled sessions — the assertions
+ * below read the counts off the page rather than pinning them, so only this
+ * sentence had to move.)
  */
 
 /** An `<img>` that decoded. `naturalWidth` is 0 for a src the browser refused. */

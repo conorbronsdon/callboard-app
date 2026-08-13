@@ -14,6 +14,10 @@ const seedSource = readFileSync(
   fileURLToPath(new URL("../../scripts/seed.mjs", import.meta.url)),
   "utf8",
 );
+const demoRouteSource = readFileSync(
+  fileURLToPath(new URL("../routes/auth.demo.tsx", import.meta.url)),
+  "utf8",
+);
 
 describe("demo constants stay in sync with the seed script", () => {
   it("seeds every account /demo can sign in as", () => {
@@ -37,5 +41,19 @@ describe("demo constants stay in sync with the seed script", () => {
   it("lands each role somewhere that role can actually reach", () => {
     expect(DEMO_ACCOUNTS.admin.landing).toBe("/admin");
     expect(DEMO_ACCOUNTS.speaker.landing).toBe("/portal");
+  });
+});
+
+describe("demo account labels are the sign-in button copy", () => {
+  it("pins the literal copy matched by the e2e specs and README", () => {
+    // This file is the pin: e2e specs and README match these strings literally,
+    // so changing either label casually would break the documented demo path.
+    expect(DEMO_ACCOUNTS.admin.label).toBe("Enter organizer workspace");
+    expect(DEMO_ACCOUNTS.speaker.label).toBe("Enter speaker portal");
+  });
+
+  it("renders labels from the constant instead of hardcoding route copy", () => {
+    expect(demoRouteSource).toContain("account.label");
+    expect(demoRouteSource).not.toContain('"Enter organizer workspace"');
   });
 });

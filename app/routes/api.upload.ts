@@ -118,9 +118,9 @@ export async function action({ request }: Route.ActionArgs) {
    * it off a non-admin path anyway. `requireCurrentEvent` therefore always
    * resolves the DEFAULT event here.
    *
-   * For a person upload that is correct and unchanged — people are
-   * deployment-global, and the event is quota/context attribution
-   * (upload-access.server.ts).
+   * People are deployment-global, but person uploads use this event for more
+   * than quota/context attribution: when an admin acts on another person, it
+   * is also the roster scope enforced by `mayAttachTo`.
    *
    * For a session upload it is wrong. Sessions are event-owned, so a file for a
    * second-event session must bind to THAT event: otherwise `mayAttachTo` 403s
@@ -129,10 +129,10 @@ export async function action({ request }: Route.ActionArgs) {
    * event is derived from the TARGET rather than from the request.
    *
    * This does NOT relax anything. For a speaker the authorization that bites is
-   * the participation join, which is untouched. For an admin the event equality
-   * inside `mayAttachTo` was never a permission boundary — admin authority is
-   * the global `people.role` and an admin could already reach any event with
-   * `?event=` — it was an accident of feeding in the request's event.
+   * the participation join, which is untouched. This route always resolves the
+   * DEFAULT event, so an admin's cross-event person write must instead go through
+   * `/admin`, where the event-selection cookie is honored. That narrowing is the
+   * intended roster boundary, not an accident of event resolution here.
    *
    * A session id that does not exist falls through to the same opaque "cannot
    * attach" 403 below. Never a distinct 404: that would confirm which ids are

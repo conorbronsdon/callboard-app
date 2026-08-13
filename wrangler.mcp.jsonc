@@ -1,0 +1,11 @@
+// This Worker holds no Callboard bindings. It reaches the product only through
+// the public HTTPS API, with exactly the access available to any integrator.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "callboard-mcp",
+  "main": "./workers/mcp.ts",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": { "APP_ORIGIN": "https://demo.callboardhq.com" }
+}

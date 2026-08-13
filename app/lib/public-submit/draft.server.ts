@@ -690,6 +690,22 @@ export async function submitDraft(input: {
     return { participant, personId };
   });
 
+  const existingMemberships = await db
+    .select({ personId: eventPeople.personId, eventRole: eventPeople.eventRole })
+    .from(eventPeople)
+    .where(
+      and(
+        eq(eventPeople.eventId, input.event.id),
+        inArray(
+          eventPeople.personId,
+          resolved.map((entry) => entry.personId),
+        ),
+      ),
+    );
+  const membershipByPersonId = new Map(
+    existingMemberships.map((membership) => [membership.personId, membership]),
+  );
+
   const answers = toFormAnswers(draft.fields, participants);
   const routed = routeCategory(answers, def);
   // The submitter's pick beats a routing rule on a form that asked them; on a
@@ -768,12 +784,32 @@ export async function submitDraft(input: {
         order: index,
       }),
     );
-    statements.push(
-      db
-        .insert(eventPeople)
-        .values({ eventId: input.event.id, personId: entry.personId, eventRole: "speaker" })
-        .onConflictDoNothing(),
-    );
+    const membership = membershipByPersonId.get(entry.personId);
+    if (membership?.eventRole === "reviewer" || membership?.eventRole === "contact") {
+      // Reviewer and contact memberships otherwise disappear from every
+      // equality-based speaker surface after submitting. Organizer/admin roles
+      // must keep their authority, while the independent reviewer flag must
+      // survive so speaker promotion does not revoke review access.
+      statements.push(
+        db
+          .update(eventPeople)
+          .set({ eventRole: "speaker" })
+          .where(
+            and(
+              eq(eventPeople.eventId, input.event.id),
+              eq(eventPeople.personId, entry.personId),
+              inArray(eventPeople.eventRole, ["reviewer", "contact"]),
+            ),
+          ),
+      );
+    } else if (!membership) {
+      statements.push(
+        db
+          .insert(eventPeople)
+          .values({ eventId: input.event.id, personId: entry.personId, eventRole: "speaker" })
+          .onConflictDoNothing(),
+      );
+    }
   });
 
   await db.batch(statements as unknown as BatchArgument);

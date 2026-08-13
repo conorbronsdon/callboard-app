@@ -101,10 +101,16 @@ export function scheduleFilterQuery(filter: ScheduleFilter): string {
   return params.toString();
 }
 
+export function scheduleFilterUrl(pathname: string, filter: ScheduleFilter): string {
+  const query = scheduleFilterQuery(filter);
+  return query ? `${pathname}?${query}` : pathname;
+}
+
 export function matchesQuery(slot: PublicSlot, q: string): boolean {
   const needle = q.trim().toLocaleLowerCase();
   if (!needle) return true;
   if (slot.title.toLocaleLowerCase().includes(needle)) return true;
+  if (slot.description?.toLocaleLowerCase().includes(needle)) return true;
   return slot.speakers.some((speaker) => speaker.name.toLocaleLowerCase().includes(needle));
 }
 

@@ -37,6 +37,23 @@ async function programmeIds(page: Page): Promise<string[]> {
   return ids;
 }
 
+/**
+ * The first programme row that is actually PUBLISHED.
+ *
+ * Walked rather than read off position 0: `/admin/agenda?view=list` renders the
+ * Unscheduled group BEFORE the Scheduled one, so `ids[0]` is whichever accepted
+ * session is still waiting for a slot — and an unscheduled session is forced
+ * `is_public = false`, so it has no public page for a title edit to reach. Ask
+ * each row whether it has one instead of assuming the seed's ordering.
+ */
+async function publishedProgrammeId(page: Page): Promise<string> {
+  for (const id of await programmeIds(page)) {
+    const html = await (await page.request.get(`/admin/sessions/${id}`)).text();
+    if (html.includes("View on public schedule")) return id;
+  }
+  throw new Error("no published programme session in the seed — nothing to edit publicly");
+}
+
 /** The add-speaker picker's options: person id plus the label it shows. */
 async function candidates(
   page: Page,
@@ -69,7 +86,7 @@ async function scheduleAt(page: Page, sessionId: string, roomId: string, time: s
 
 test("an organizer's title edit reaches the public schedule", async ({ page }) => {
   await signInAsAdmin(page);
-  const [sessionId] = await programmeIds(page);
+  const sessionId = await publishedProgrammeId(page);
 
   await page.goto(`/admin/sessions/${sessionId}`);
   const titleField = page.locator('[data-session-edit-form] input[name="title"]');

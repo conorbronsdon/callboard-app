@@ -116,3 +116,6 @@ export const SPEAKER_EDIT_LOCK_COPY: Record<
   past_close_date: "Editing is closed because this CFP deadline has passed.",
   past_edit_deadline: "Editing is closed because the deadline for changes has passed.",
 };
+
+export const PROGRAMME_MISSING_COPY =
+  "This accepted talk is missing its connected programme session. Contact the programme team.";

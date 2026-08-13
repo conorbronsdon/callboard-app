@@ -61,7 +61,7 @@ export interface FilesData {
 }
 
 export function meta() {
-  return [{ title: "Files — callboard" }];
+  return [{ title: "Files — callboard admin" }];
 }
 
 /** The library's rows, already joined for the three names the table shows. */

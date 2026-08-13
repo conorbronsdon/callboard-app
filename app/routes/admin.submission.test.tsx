@@ -17,16 +17,18 @@ import { installTestDb, type TestDbContext } from "~/test/db";
 import { seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
 import AdminSubmissionDetail, {
+  type SubmissionLoaderData,
   SubmissionDetailView,
   action,
   detailUrl,
   loader,
   safeReturnTo,
+  submissionLoaderPayload,
 } from "./admin.submission";
 
 type LoaderArgs = Parameters<typeof loader>[0];
 type ActionArgs = Parameters<typeof action>[0];
-type LoaderData = Awaited<ReturnType<typeof loader>>;
+type LoaderData = SubmissionLoaderData;
 
 const asLoaderArgs = (request: Request, id: string) =>
   ({ request, params: { id }, context: {} }) as unknown as LoaderArgs;
@@ -44,7 +46,10 @@ afterEach(() => ctx.close());
 
 async function load(id: string, query = ""): Promise<LoaderData> {
   const request = await signedInGet(`https://x.test/admin/submissions/${id}${query}`, fixture.adminId);
-  return loader(asLoaderArgs(request, id));
+  // The not-found branch now carries a 404 via `data()`; the status itself is
+  // asserted in admin.submission.notfound.test.tsx, so this helper yields the
+  // payload either way and the existing assertions keep their meaning.
+  return submissionLoaderPayload(await loader(asLoaderArgs(request, id)));
 }
 
 async function post(id: string, fields: Record<string, string>) {

@@ -113,6 +113,30 @@ export function DevelopersPage({ origin, eventId, eventName }: DevelopersData) {
         </section>
 
         <section className={CARD}>
+          <h2 className="text-lg font-semibold">MCP for agents</h2>
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            A separate streamable-HTTP Worker exposes the common programme workflows as
+            eight compact tools and reaches Callboard only through this public API. Point
+            an MCP client at the <code className="font-mono">/mcp</code> route of that
+            Worker and send the same scoped key as{" "}
+            <code className="font-mono">x-access-token</code>. The endpoint is deliberately
+            not printed here: the MCP Worker is deployed separately from this one and
+            shares no configuration with it, so this page cannot know its URL.
+          </p>
+          <p className="mt-2 text-xs text-gray-500">
+            Tools: <code className="font-mono">list_events</code>,{" "}
+            <code className="font-mono">get_schedule</code>,{" "}
+            <code className="font-mono">list_submissions</code>,{" "}
+            <code className="font-mono">get_submission</code>,{" "}
+            <code className="font-mono">search_speakers</code>,{" "}
+            <code className="font-mono">list_tracks</code>,{" "}
+            <code className="font-mono">capture_abstract</code>, and{" "}
+            <code className="font-mono">get_openapi</code>. Self-hosting and connector
+            examples are in <code className="font-mono">docs/MCP.md</code> in the repository.
+          </p>
+        </section>
+
+        <section className={CARD}>
           <h2 className="text-lg font-semibold">One envelope</h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
             Every collection returns the same shape. Sessionboard returns{" "}

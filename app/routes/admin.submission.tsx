@@ -35,7 +35,7 @@
  */
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { ReactNode } from "react";
-import { redirect } from "react-router";
+import { data, redirect } from "react-router";
 
 import { AiTriageCard, type AiTriageCardData } from "~/components/ai-triage-card";
 import { StatusCell, StatusPill } from "~/components/admin-status";
@@ -103,6 +103,7 @@ import {
 import { applyAbstractStatus } from "~/lib/review/commit.server";
 import { choiceSummaries, type ChoiceSummary } from "~/lib/review/aggregate";
 import { isAdminAssignable, parseTab, statusLabel, tabFor } from "~/lib/review/pipeline";
+import { socialHref } from "~/lib/social-href";
 import {
   DEFAULT_RUBRIC,
   isSelectCriterion,
@@ -111,6 +112,11 @@ import {
   type Rubric,
 } from "~/lib/review/scoring";
 import type { Route } from "./+types/admin.submission";
+
+export function meta({ loaderData }: Route.MetaArgs) {
+  const title = loaderData?.detail?.title;
+  return [{ title: title ? `${title} — callboard admin` : "Abstract — callboard admin" }];
+}
 
 /* ------------------------------------------------------------- shaping */
 
@@ -404,7 +410,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   ]);
 
   const found = rowResult[0];
-  if (!found) return notFound;
+  // No current event is a valid empty state, but an id absent from that event
+  // is a missing resource; `data()` preserves the route's friendly body.
+  if (!found) return data(notFound, { status: 404 });
   const roundResult = Array.from(
     new Map(roundReviewResult.map((entry) => [entry.round.id, entry.round])).values(),
   );
@@ -907,12 +915,58 @@ function Meta({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
+ * Strip React Router's `data()` wrapper back off a loader return type.
+ *
+ * Returning `data(notFound, { status: 404 })` from ONE branch widens the whole
+ * loader to `Payload | DataWithResponseInit<Payload>`. Everything derived from
+ * `ReturnType<typeof loader>` then sees a union whose two arms share no
+ * properties, so `.detail` stops existing — which broke this component's props
+ * and three unrelated test files that had nothing to do with the status code.
+ *
+ * `T` is naked here, so the conditional DISTRIBUTES over that union and maps
+ * both arms back to the payload. Attaching a status stays a runtime concern
+ * instead of leaking into every consumer's types.
+ *
+ * Matched structurally because react-router only exports the class as
+ * `UNSAFE_DataWithResponseInit`, and its `type` field is declared `string`
+ * rather than a literal, so there is no discriminant to key on. The payload has
+ * no `data`/`init` pair of its own, which is what makes this unambiguous.
+ */
+type UnwrapData<T> = T extends { type: string; data: infer P; init: ResponseInit | null }
+  ? P
+  : T;
+
+/** The loader's payload, with any `data()` wrapper removed. */
+export type SubmissionLoaderData = UnwrapData<Awaited<ReturnType<typeof loader>>>;
+
+/**
+ * Unwrap a DIRECT `loader()` call — the shape this suite calls loaders in.
+ *
+ * React Router strips the `data()` wrapper before a component ever sees it, so
+ * nothing in the app needs this. Unit tests that invoke the loader as a plain
+ * function do, because they receive whatever the branch actually returned.
+ *
+ * Exported rather than copied into each test file: eight of them call this
+ * loader directly, and eight private copies of the same three lines is how the
+ * next status code becomes an eight-file change again.
+ */
+export function submissionLoaderPayload(
+  result: Awaited<ReturnType<typeof loader>>,
+): SubmissionLoaderData {
+  return (
+    result && typeof result === "object" && "data" in result && "init" in result
+      ? (result as { data: SubmissionLoaderData }).data
+      : result
+  ) as SubmissionLoaderData;
+}
+
+/**
  * `capture` is optional on the PROP even though the loader always returns it:
  * the zero-state render tests build these props by hand, and a caller with no
  * provenance to pass is asking for the ordinary page, not a broken one.
  */
 export type SubmissionDetailViewProps = Omit<
-  Awaited<ReturnType<typeof loader>>,
+  SubmissionLoaderData,
   "capture" | "candidates" | "roles" | "triage" | "aiAvailable" | "revisions"
 > & {
   capture?: CaptureProvenance | null;
@@ -1404,11 +1458,18 @@ export function SubmissionDetailView({
                 )}
                 {speaker.links.length ? (
                   <p className="mt-1 flex flex-wrap gap-3 text-sm">
-                    {speaker.links.map(([label, href]) => (
-                      <a key={label} className={linkClass} href={href}>
-                        {label}
-                      </a>
-                    ))}
+                    {speaker.links.map(([label, href]) => {
+                      const resolvedHref = socialHref(href);
+                      return resolvedHref ? (
+                        <a key={label} className={linkClass} href={resolvedHref} rel="noreferrer">
+                          {label}
+                        </a>
+                      ) : (
+                        <span key={label} className="text-gray-500 dark:text-gray-400">
+                          {label}
+                        </span>
+                      );
+                    })}
                   </p>
                 ) : null}
               </li>

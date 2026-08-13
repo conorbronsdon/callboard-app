@@ -25,6 +25,10 @@ import type { Route } from "./+types/admin.forms";
 /** CFP wizard targets only `submission` and `session`; contact/group are portal forms. */
 const CFP_TARGETS = FORM_TARGETS.filter((t) => t === "submission" || t === "session");
 
+export function meta() {
+  return [{ title: "Forms — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const event = await currentEvent(request);

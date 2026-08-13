@@ -43,6 +43,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       params.sessionId,
       parsed.values,
       parsed.expectedUpdatedAt,
+      parsed.publishOverride,
     );
     if (!updated.ok) {
       const { code, message } = updated.error;

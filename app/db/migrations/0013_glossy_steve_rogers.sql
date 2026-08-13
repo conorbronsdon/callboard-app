@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `speaker_informed_at` integer;

@@ -119,6 +119,10 @@ const emails = (formData: FormData, name: string): string[] =>
 
 const asJson = (value: unknown) => value as unknown as Record<string, unknown>;
 
+export function meta() {
+  return [{ title: "Edit form — callboard admin" }];
+}
+
 /* -------------------------------------------------------------- loader */
 
 export async function loader({ request, params }: Route.LoaderArgs) {

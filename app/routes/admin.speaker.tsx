@@ -44,7 +44,9 @@ import { getMailer } from "~/lib/mail/mailer.server";
 import { storeUpload } from "~/lib/portal/uploads.server";
 import { ACCEPT_ATTRIBUTE, formatBytes } from "~/lib/portal-uploads";
 import { RATE_LIMIT_POLICIES, enforceRateLimit } from "~/lib/rate-limit.server";
+import { socialHref } from "~/lib/social-href";
 import { speakerStatusBadge } from "~/lib/speakers/roster";
+import { isOnEventRoster, NOT_ON_ROSTER } from "~/lib/speakers/roster.server";
 import { detailUrl } from "./admin.submission";
 import type { Route } from "./+types/admin.speaker";
 
@@ -72,8 +74,8 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   /*
    * CNT-10 photo half — the organizer replaces the headshot from the admin
-   * area. `mayAttachTo` already grants an admin write access to any existing
-   * person, so this adds no new authority; it adds the missing surface.
+   * area. This door and `mayAttachTo` enforce the same event-roster boundary,
+   * so neither path grants broader authority than the other.
    *
    * It deliberately does NOT touch `photo_publishable`. An organizer uploading
    * a better crop is a correction, not the speaker's consent to be published,
@@ -103,11 +105,8 @@ export async function action({ request, params }: Route.ActionArgs) {
     });
 
     const db = getDb();
-    const membership = await db.query.eventPeople.findFirst({
-      where: and(eq(eventPeople.eventId, event.id), eq(eventPeople.personId, params.id)),
-    });
-    if (!membership) {
-      return { ok: false as const, error: "That person is not on this event's roster." };
+    if (!(await isOnEventRoster(event.id, params.id, db))) {
+      return { ok: false as const, error: NOT_ON_ROSTER };
     }
 
     const result = await storeUpload({
@@ -135,11 +134,8 @@ export async function action({ request, params }: Route.ActionArgs) {
   if (intent === "set-photo-publishable") {
     const publish = String(formData.get("value") ?? "") === "1";
     const db = getDb();
-    const membership = await db.query.eventPeople.findFirst({
-      where: and(eq(eventPeople.eventId, event.id), eq(eventPeople.personId, params.id)),
-    });
-    if (!membership) {
-      return { ok: false as const, error: "That person is not on this event's roster." };
+    if (!(await isOnEventRoster(event.id, params.id, db))) {
+      return { ok: false as const, error: NOT_ON_ROSTER };
     }
     /*
      * Consent under DECISIONS #66 is global and per person, not per file or per
@@ -170,11 +166,8 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (intent === "send-invite") {
     const db = getDb();
-    const membership = await db.query.eventPeople.findFirst({
-      where: and(eq(eventPeople.eventId, event.id), eq(eventPeople.personId, params.id)),
-    });
-    if (!membership) {
-      return { ok: false as const, error: "That person is not on this event's roster." };
+    if (!(await isOnEventRoster(event.id, params.id, db))) {
+      return { ok: false as const, error: NOT_ON_ROSTER };
     }
     const template = await loadTemplate(event.id, "portal_invite", db);
     const result = await sendBulkComm({
@@ -213,11 +206,8 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 
   const db = getDb();
-  const membership = await db.query.eventPeople.findFirst({
-    where: and(eq(eventPeople.eventId, event.id), eq(eventPeople.personId, params.id)),
-  });
-  if (!membership) {
-    return { ok: false as const, error: "That person is not on this event's roster." };
+  if (!(await isOnEventRoster(event.id, params.id, db))) {
+    return { ok: false as const, error: NOT_ON_ROSTER };
   }
 
   await db.batch([
@@ -234,6 +224,10 @@ export async function action({ request, params }: Route.ActionArgs) {
   ]);
 
   return { ok: true as const, notice: "Speaker details saved." };
+}
+
+export function meta() {
+  return [{ title: "Speaker — callboard admin" }];
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -490,11 +484,18 @@ export function SpeakerView({
             <div>
               <dt className="text-xs font-medium tracking-wide text-gray-500 uppercase">Links</dt>
               <dd className="mt-0.5 flex flex-wrap gap-3 text-sm">
-                {speaker.links.map(([label, href]) => (
-                  <a key={label} className={linkClass} href={href}>
-                    {label}
-                  </a>
-                ))}
+                {speaker.links.map(([label, href]) => {
+                  const resolvedHref = socialHref(href);
+                  return resolvedHref ? (
+                    <a key={label} className={linkClass} href={resolvedHref} rel="noreferrer">
+                      {label}
+                    </a>
+                  ) : (
+                    <span key={label} className="text-gray-500 dark:text-gray-400">
+                      {label}
+                    </span>
+                  );
+                })}
               </dd>
             </div>
           ) : null}

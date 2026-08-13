@@ -44,6 +44,10 @@ function savedAtLabel(iso: string): string {
   return new Date(iso).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 }
 
+export function meta() {
+  return [{ title: "Reviewer workspace — callboard" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   const actor = await requireReviewerActor(request);
   const event = await requireReviewerEvent(request, actor.person.id);

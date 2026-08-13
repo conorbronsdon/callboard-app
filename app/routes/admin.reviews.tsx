@@ -147,6 +147,10 @@ function assignNotice(url: URL): string | null {
     : `Assigned ${submissions(assigned)} to that review team. The other ${matched - assigned} were already assigned.`;
 }
 
+export function meta() {
+  return [{ title: "Review ops — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const url = new URL(request.url);

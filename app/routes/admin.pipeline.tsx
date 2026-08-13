@@ -23,6 +23,10 @@ export interface PipelineBoardData {
   }[];
 }
 
+export function meta() {
+  return [{ title: "Pipeline — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs): Promise<PipelineBoardData> {
   await requireAdmin(request);
   const board = await loadBoard(getDb());

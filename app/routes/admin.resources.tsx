@@ -41,6 +41,10 @@ function error(message: string) {
   return { ok: false as const, error: message };
 }
 
+export function meta() {
+  return [{ title: "Resources — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const event = await currentEvent(request);

@@ -29,7 +29,7 @@ for (const vp of [
 ]) {
   const page = await browser.newPage({ viewport: vp });
   await page.goto(`${BASE}/demo`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /Enter as admin/i }).click();
+  await page.getByRole("button", { name: "Enter organizer workspace" }).click();
   await page.waitForURL(/\/admin$/, { timeout: 20_000 });
   await page.goto(`${BASE}/admin/submissions`, { waitUntil: "networkidle" });
 

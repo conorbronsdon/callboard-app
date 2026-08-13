@@ -18,6 +18,11 @@ import { loadPublicSchedule } from "~/lib/agenda/public-schedule.server";
 import { resolveEmbedOptions } from "~/lib/embeds.server";
 import type { Route } from "./+types/embed.agenda";
 
+export function meta({ loaderData }: Route.MetaArgs) {
+  const event = loaderData?.event?.name;
+  return [{ title: event ? `Agenda — ${event}` : "Agenda — callboard" }];
+}
+
 export async function loader({ params, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const { theme, track, accent, density } = await resolveEmbedOptions(

@@ -16,6 +16,7 @@ import {
   parseStoredSchedule,
   pruneStoredSchedule,
   scheduleFilterQuery,
+  scheduleFilterUrl,
   serialiseStoredSchedule,
   type ScheduleFilter,
 } from "~/lib/agenda/public-schedule";
@@ -79,6 +80,12 @@ export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
     }
   }, [starredIds, storageKey, storageLoaded]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    const url = scheduleFilterUrl(window.location.pathname, filter);
+    window.history.replaceState(window.history.state, "", url);
+  }, [filter, hydrated]);
+
   const visibleDays = filterDays(days, filter, mine ? starredIds : null);
   const visibleCount = countSessions(visibleDays);
   const activeDay = filter.day ? days.find((day) => day.day === filter.day) : null;
@@ -94,20 +101,9 @@ export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
       setFilter((current) => ({ ...current, [key]: event.target.value }));
     };
   /*
-   * Reset has to clear BOTH halves, and it is the only control that does.
-   *
-   * Live filtering deliberately never writes to the URL, so the filter lives in
-   * two places at once: this state, and whatever query string the visitor
-   * arrived on. Clearing only the state leaves a stale `?q=…&day=…` that the
-   * next reload or shared link silently restores. Clearing only the URL — by
-   * letting the link navigate on its own — does nothing visible, because a
-   * same-route navigation re-runs the loader WITHOUT remounting the component,
-   * so the `useState(initialFilter)` initialiser never fires a second time.
-   * (The Back control from a session detail crosses a route boundary, remounts,
-   * and therefore does pick its filter up from the URL.)
-   *
-   * So: no `preventDefault` — the navigation proceeds and cleans the URL — plus
-   * an explicit state clear for the render that is already on screen.
+   * A same-route reset re-runs the loader without remounting, so the
+   * `useState(initialFilter)` initialiser does not run again. Keep the explicit
+   * state clears while the link navigation restores the canonical bare URL.
    */
   const reset = () => {
     setFilter(EMPTY_FILTER);
@@ -242,29 +238,38 @@ export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
             {visibleCount} session{visibleCount === 1 ? "" : "s"} · all times {event.timezone}
           </p>
 
-          {hydrated ? (
-            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-950/50">
-              <button
-                type="button"
-                data-my-schedule-toggle
-                aria-pressed={mine}
-                className={buttonClass(mine ? "primary" : "secondary")}
-                onClick={() => setMine((current) => !current)}
-              >
-                My schedule ({starredIds.size})
-              </button>
-              {/*
-                * Tied to the selection, not to the view: an attendee who has
-                * starred sessions can export them without first switching to
-                * My schedule, and the control cannot appear with nothing in it.
-                */}
-              {starredIds.size > 0 ? (
-                <a data-my-schedule-export className={linkClass} href={exportHref}>
-                  Export / add to calendar (.ics)
-                </a>
-              ) : null}
-            </div>
-          ) : null}
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-950/50">
+            {hydrated ? (
+              <>
+                <button
+                  type="button"
+                  data-my-schedule-toggle
+                  aria-pressed={mine}
+                  className={buttonClass(mine ? "primary" : "secondary")}
+                  onClick={() => setMine((current) => !current)}
+                >
+                  My schedule ({starredIds.size})
+                </button>
+                {/*
+                  * Tied to the selection, not to the view: an attendee who has
+                  * starred sessions can export them without first switching to
+                  * My schedule, and the control cannot appear with nothing in it.
+                  */}
+                {starredIds.size > 0 ? (
+                  <a data-my-schedule-export className={linkClass} href={exportHref}>
+                    Export / add to calendar (.ics)
+                  </a>
+                ) : null}
+              </>
+            ) : null}
+            <a
+              data-full-schedule-export
+              className={linkClass}
+              href={`/e/${event.slug}/schedule.ics`}
+            >
+              Export full schedule (.ics)
+            </a>
+          </div>
 
           {visibleDays.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-300 bg-white/60 p-8 text-center dark:border-gray-700 dark:bg-gray-900/40">

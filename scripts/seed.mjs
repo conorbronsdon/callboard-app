@@ -811,9 +811,13 @@ CONTENT.abstracts.forEach((entry, index) => {
 });
 
 /**
- * Four of the five accepted abstracts are composed into scheduled program
- * sessions. The fifth stays composed-but-unscheduled on purpose: "accepted
- * sessions still need a time slot" is a real state the agenda has to show.
+ * Four of the five accepted abstracts are composed into SCHEDULED program
+ * sessions here. The fifth is composed-but-unscheduled — "accepted sessions
+ * still need a time slot" is a real state the agenda has to show, and it is the
+ * state that makes Auto-place remaining a live button rather than a greyed-out
+ * one. That composition happens in ADDITIONAL_PROGRAMME just below, because this
+ * loop's whole body assumes a room and a start time; until it existed, the
+ * sentence above described an intent the seed never actually carried out.
  */
 const COMPOSED = [0, 1, 2, 3];
 /** personIndex -> program session key (1-based), for the session-scoped tasks. */
@@ -873,6 +877,164 @@ COMPOSED.forEach((abstractIndex, n) => {
     )};`,
   );
 });
+
+/**
+ * A summit also books keynotes, panels, and hands-on sessions directly, so these
+ * invited programme rows never passed through the CFP. Two accepted rows are
+ * deliberately left unscheduled: the agenda tray and auto-placement workflow
+ * need real work waiting in them when the demo opens.
+ *
+ * Invited sessions sp5/sp6/sp7/sp8/sp9/sp11 use personIndex 7/8/9/10/11/12.
+ * Abstracts 0-4 use the fixed indices 0/1 and generator indices 2/4/3/5/6, so
+ * all six invited speakers are distinct and outside that already-used set.
+ */
+const ADDITIONAL_PROGRAMME = [
+  {
+    sessionNumber: 5,
+    title: "Where Agent Reliability Actually Breaks",
+    description:
+      "A working session on failures at handoff boundaries: tool selection, state recovery, and permission checks. The panel compares incident patterns from long-running agents and identifies which controls belong in the model loop versus the surrounding system.",
+    track: "Evals & Reliability",
+    format: "Panel",
+    roomId: roomIds[0],
+    startsAt: at(60, 4),
+    capacity: 800,
+    isPublic: true,
+    speakerIndex: 7,
+  },
+  {
+    sessionNumber: 6,
+    title: "Lab: Reproducing an Agent Failure from a Trace",
+    description:
+      "Participants will inspect a recorded multi-step trace, isolate the first bad decision, and build a regression case around it. The lab uses a small local harness so each change can be rerun against the same tool responses and state.",
+    track: "Workshops & Labs",
+    format: "Workshop",
+    roomId: roomIds[1],
+    startsAt: at(60, 5),
+    capacity: 120,
+    isPublic: true,
+    speakerIndex: 8,
+  },
+  {
+    sessionNumber: 7,
+    title: "Serving Models Under Bursty Load",
+    description:
+      "This talk follows a serving tier through queue saturation, batch fragmentation, and cache churn during a tenfold traffic spike. It compares admission control and dynamic batching with latency distributions from the same workload.",
+    track: "Infrastructure",
+    format: "Talk",
+    roomId: roomIds[0],
+    startsAt: at(60, 6),
+    capacity: 800,
+    isPublic: true,
+    speakerIndex: 9,
+  },
+  {
+    sessionNumber: 8,
+    title: "State Machines for Durable Agent Work",
+    description:
+      "Long-running agents fail in the gaps between retries, human approvals, and external side effects. This talk models those boundaries as explicit states and shows how idempotency keys and replay logs prevent duplicated work.",
+    track: "Agents",
+    format: "Talk",
+    roomId: roomIds[2],
+    startsAt: at(61, 4.5),
+    capacity: 120,
+    isPublic: false,
+    speakerIndex: 10,
+  },
+  {
+    sessionNumber: 9,
+    title: "Three Measurements Before You Quantize",
+    description:
+      "A compact checklist for deciding whether quantization will improve a real serving workload. The session connects memory bandwidth, batch shape, and quality drift to three measurements teams can collect before changing model weights.",
+    track: "Infrastructure",
+    format: "Lightning",
+    roomId: roomIds[1],
+    startsAt: at(61, 11),
+    capacity: 120,
+    isPublic: false,
+    speakerIndex: 11,
+  },
+  {
+    sessionNumber: 10,
+    abstractIndex: 4,
+    title: CONTENT.abstracts[4].title,
+    description: CONTENT.abstracts[4].abstract,
+    track: CONTENT.abstracts[4].track,
+    format: formatName(CONTENT.abstracts[4].format),
+    roomId: null,
+    startsAt: null,
+    capacity: 300,
+    isPublic: false,
+  },
+  {
+    sessionNumber: 11,
+    title: "Red-Team Triage Without a Giant Queue",
+    description:
+      "This session presents a small-batch workflow for turning adversarial findings into reproducible evaluation cases. It separates exploit severity, model behavior, and product exposure so the highest-risk failures reach engineers first.",
+    track: "Evals & Reliability",
+    format: "Talk",
+    roomId: null,
+    startsAt: null,
+    capacity: 160,
+    isPublic: false,
+    speakerIndex: 12,
+  },
+];
+
+ADDITIONAL_PROGRAMME.forEach((session) => {
+  const programId = id("sp", session.sessionNumber);
+  const minutes = FORMATS.find(([name]) => name === session.format)?.[1] ?? 30;
+  const people =
+    session.abstractIndex === undefined
+      ? [{ personIndex: session.speakerIndex, role: "speaker", isPrimary: true }]
+      : abstractParticipants.get(session.abstractIndex);
+
+  insert("sessions", {
+    id: q(programId),
+    event_id: q(EVENT_ID),
+    friendly_id: q(`SESS-${session.sessionNumber}`),
+    title: q(session.title),
+    description: q(session.description),
+    status: q("accepted"),
+    is_abstract: bool(false),
+    track_id: q(trackIdByName.get(session.track)),
+    room_id: session.roomId === null ? "NULL" : q(session.roomId),
+    format_id: q(formatIdByName.get(session.format)),
+    starts_at: session.startsAt === null ? "NULL" : session.startsAt,
+    ends_at: session.startsAt === null ? "NULL" : session.startsAt + minutes * 60_000,
+    capacity: session.capacity,
+    is_public: bool(session.isPublic),
+    published_at: session.isPublic ? NOW : "NULL",
+    created_at: NOW,
+    updated_at: NOW,
+  });
+
+  people.forEach((person, order) => {
+    insert("session_participants", {
+      session_id: q(programId),
+      person_id: q(speakerIds[person.personIndex]),
+      role: q(person.role),
+      is_primary: bool(person.isPrimary),
+      order,
+      created_at: NOW,
+    });
+    if (session.isPublic) publicSpeakers.set(speakerIds[person.personIndex], EVENT_ID);
+  });
+
+  if (session.abstractIndex !== undefined) {
+    statements.push(
+      `UPDATE sessions SET composed_into_session_id = ${q(programId)} WHERE id = ${q(
+        abstractIds[session.abstractIndex],
+      )};`,
+    );
+  }
+});
+
+const MAIN_PROGRAMME_COUNTS = {
+  scheduled:
+    COMPOSED.length + ADDITIONAL_PROGRAMME.filter((session) => session.startsAt !== null).length,
+  unscheduled: ADDITIONAL_PROGRAMME.filter((session) => session.startsAt === null).length,
+};
 
 /* review setup */
 
@@ -1289,6 +1451,13 @@ insert("task_templates", {
 
 // Every speaker with a scheduled session gets the form task; only the demo
 // speaker's is pre-filled, so the "not started" state is reachable too.
+//
+// ⚠️ "Only the demo speaker's" rests on MAP INSERTION ORDER: `index === 0` below
+// is Sam because COMPOSED runs first and COMPOSED[0]'s primary is him. The
+// invited programme block deliberately does NOT write to `programSessionOf` —
+// its speakers are not demo-account speakers — but a future block inserted
+// ABOVE COMPOSED would hand the pre-filled response to somebody else, and
+// nothing would go red. Add programme rows below, or pin the demo speaker here.
 [...programSessionOf.entries()].forEach(([speaker, programKey], index) => {
   taskNumber += 1;
   insert("tasks", {
@@ -2115,15 +2284,15 @@ const CAPTURED_PITCH = [
   "",
   "Happy to write this up properly in the form if you'd rather — just tell me which you want.",
   "",
-  "— Priya",
+  "— Ingrid",
 ].join("\n");
 
 insert("people", {
   id: q(CAPTURED_SPEAKER_ID),
-  email: q("priya.raman@example.com"),
-  full_name: q("Priya Raman"),
-  first_name: q("Priya"),
-  last_name: q("Raman"),
+  email: q("ingrid.falconer@example.com"),
+  full_name: q("Ingrid Falconer"),
+  first_name: q("Ingrid"),
+  last_name: q("Falconer"),
   role: q("speaker"),
   created_at: CAPTURED_AT,
   updated_at: CAPTURED_AT,
@@ -2361,7 +2530,7 @@ const HEADSHOT_UPLOAD_ID_BASE = 3;
  * values to the rows, so the source assertion cannot stay green after drift.
  */
 const SESSION_REVISION_COUNTS = {
-  total: 44,
+  total: 51,
   firstComposedAbstract: 3,
   firstComposedProgramme: 3,
 };
@@ -2421,6 +2590,24 @@ COMPOSED.forEach((abstractIndex, index) => {
   });
 });
 
+ADDITIONAL_PROGRAMME.forEach((session) => {
+  const people =
+    session.abstractIndex === undefined
+      ? [{ personIndex: session.speakerIndex, role: "speaker", isPrimary: true }]
+      : abstractParticipants.get(session.abstractIndex);
+  const primary = people?.find((participant) => participant.isPrimary);
+  const primarySpeaker = primary ? SPEAKERS[primary.personIndex] : null;
+  addSessionRevision({
+    sessionId: id("sp", session.sessionNumber),
+    title: session.title,
+    description: session.description,
+    editorPersonId: primary ? speakerIds[primary.personIndex] : ADMIN_ID,
+    editorName: primarySpeaker?.name ?? "Ada Organiser",
+    source: "system",
+    createdAt: NOW,
+  });
+});
+
 EVENT2_ABSTRACTS.forEach(([title, , speakerIndex], index) => {
   addSessionRevision({
     sessionId: event2AbstractIds[index],
@@ -2451,7 +2638,7 @@ addSessionRevision({
   title: "What per-tenant SQLite cost us after the migration was over",
   description: CAPTURED_PITCH,
   editorPersonId: CAPTURED_SPEAKER_ID,
-  editorName: "Priya Raman",
+  editorName: "Ingrid Falconer",
   source: "submit",
   createdAt: CAPTURED_AT,
 });
@@ -2699,7 +2886,7 @@ console.log(
   // the reviewer-only account. Bump this when you seed another person.
   `[seed] ${SPEAKERS.length + 4} people, ${CONTENT.abstracts.length + 1} abstracts across 7 statuses ` +
     `(${CONTENT.abstracts.length} through the form + 1 captured on a speaker's behalf), ` +
-    `${COMPOSED.length} scheduled sessions`,
+    `${MAIN_PROGRAMME_COUNTS.scheduled} scheduled and ${MAIN_PROGRAMME_COUNTS.unscheduled} unscheduled programme sessions`,
 );
 console.log(
   `[seed] second event: /e/${EVENT2_SLUG} — ${EVENT2_ABSTRACTS.length} abstracts, ${EVENT2_PROGRAMME.length} scheduled sessions (switch to it from the admin chrome)`,

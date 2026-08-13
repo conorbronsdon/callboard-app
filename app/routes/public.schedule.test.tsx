@@ -19,9 +19,9 @@ import { loader } from "./public.schedule";
 type LoaderArgs = Parameters<typeof loader>[0];
 type LoaderData = Awaited<ReturnType<typeof loader>>;
 
-const asLoaderArgs = (slug: string) =>
+const asLoaderArgs = (slug: string, search = "") =>
   ({
-    request: new Request(`https://x.test/e/${slug}/schedule`),
+    request: new Request(`https://x.test/e/${slug}/schedule${search}`),
     params: { slug },
     context: {},
   }) as unknown as LoaderArgs;
@@ -219,5 +219,38 @@ describe("render", () => {
     const markup = await markupFor(await load());
     expect(markup).toContain("The schedule is not published yet.");
     expect(markup).not.toContain("data-public-session");
+  });
+
+  /*
+   * The server half of the shared search predicate. "composed" appears only in
+   * the seeded ABSTRACT text, never in a title or a speaker name, so a hit here
+   * can only have come from the description reaching the haystack.
+   */
+  it("MUST FIRE: ?q= matching only abstract text renders those sessions server-side", async () => {
+    const data = await loader(asLoaderArgs(EVENT_SLUG, "?q=composed"));
+    expect(data.initialFilter.q).toBe("composed");
+    const markup = await markupFor(data);
+    expect(markup).toContain("Shipping agents that survive contact with users");
+    expect(markup).toContain('data-result-count="2"');
+    expect(markup).not.toContain("No sessions match these filters.");
+  });
+
+  it("MUST NOT FIRE: a ?q= that matches no title, speaker OR abstract renders empty", async () => {
+    const data = await loader(asLoaderArgs(EVENT_SLUG, "?q=nowhere-in-this-event"));
+    const markup = await markupFor(data);
+    expect(markup).toContain("No sessions match these filters.");
+    expect(markup).toContain('data-result-count="0"');
+  });
+
+  it("MUST FIRE: the whole-schedule ICS feed is linked from the schedule page", async () => {
+    const markup = await markupFor(await load());
+    expect(markup).toContain(`href="/e/${EVENT_SLUG}/schedule.ics"`);
+    expect(markup).toContain("Export full schedule (.ics)");
+  });
+
+  it("MUST NOT FIRE: no export link when there is no published schedule to export", async () => {
+    await ctx.db.update(sessions).set({ isPublic: false });
+    const markup = await markupFor(await load());
+    expect(markup).not.toContain("Export full schedule (.ics)");
   });
 });

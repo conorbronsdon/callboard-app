@@ -41,7 +41,7 @@ function row(over: Partial<LibraryRow> & { id: string }): LibraryRow {
     createdAt: T0,
     ownerType: "session",
     ownerId: "sess-1",
-    uploaderName: "Priya Speaker",
+    uploaderName: "Ingrid Speaker",
     sessionTitle: "Your AI Pair Programmer",
     ownerPersonName: null,
     ...over,
@@ -113,7 +113,7 @@ describe("buildLibrary", () => {
       ownerType: "person",
       ownerId: "pe-1",
       sessionTitle: null,
-      ownerPersonName: "Priya Speaker",
+      ownerPersonName: "Ingrid Speaker",
       createdAt: T0 - HOUR,
     }),
   ];
@@ -141,7 +141,7 @@ describe("buildLibrary", () => {
     });
     expect(chains.find((c) => c.rootId === "solo")).toMatchObject({
       linkageKind: "person",
-      linkageLabel: "Priya Speaker",
+      linkageLabel: "Ingrid Speaker",
     });
   });
 

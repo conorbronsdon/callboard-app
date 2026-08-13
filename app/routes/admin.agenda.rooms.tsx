@@ -32,6 +32,10 @@ export interface RoomsData {
   notice: string | null;
 }
 
+export function meta() {
+  return [{ title: "Rooms — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs): Promise<RoomsData> {
   await requireAdmin(request);
   const event = await currentEvent(request);

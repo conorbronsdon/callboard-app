@@ -79,7 +79,43 @@ describe("public calendar feed", () => {
     expect(icsValues(parseIcs(body), "DTEND")).toEqual(["20261007T230000Z"]);
   });
 
-  it("MUST NOT FIRE: unpublished, abstract, deleted and other-event ids yield no events", async () => {
+  it("MUST FIRE: a selection naming only ids that resolve to nothing is 404, not an empty 200", async () => {
+    // The reported paper-cut: a garbage id downloaded a valid, empty calendar.
+    await expect(load("not-a-uuid")).rejects.toMatchObject({ status: 404 });
+    // Well-formed but unknown takes the same answer — the codebase 404s unknown
+    // ids on every other public route, and a uniform reply is also what keeps
+    // this from becoming an existence oracle for unpublished sessions.
+    await expect(load("invalid0-0000-4000-8000-00000000dead")).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("MUST NOT FIRE: a stale selection still exports the sessions that DO resolve", async () => {
+    /*
+     * The complement of the 404 above, and the reason it is not a blanket
+     * rule: an attendee whose saved itinerary has gone partly stale must still
+     * get the sessions that are live, not an error page. This is also the test
+     * that would catch "throw 404 whenever anything is missing".
+     */
+    const { response, body } = await load(
+      [fixture.programSessionIds[0], "invalid0-0000-4000-8000-00000000dead"].join(","),
+    );
+    expect(response.status).toBe(200);
+    expect(icsValues(parseIcs(body), "SUMMARY")).toEqual([
+      "Shipping agents that survive contact with users",
+    ]);
+  });
+
+  it("MUST NOT FIRE: the whole-event feed stays 200 even with nothing published", async () => {
+    // A subscribed calendar client polling before the schedule goes live wants
+    // an empty calendar, not a hard error.
+    await ctx.db.update(sessions).set({ isPublic: false });
+    const { response, body } = await load();
+    expect(response.status).toBe(200);
+    expect(icsValues(parseIcs(body), "SUMMARY")).toEqual([]);
+  });
+
+  it("MUST FIRE: unpublished, abstract, deleted and other-event ids leak nothing and 404", async () => {
     const unpublishedId = "invalid0-0000-4000-8000-000000000001";
     const deletedId = "invalid0-0000-4000-8000-000000000002";
     const startsAt = new Date("2026-10-08T18:00:00Z");
@@ -108,12 +144,17 @@ describe("public calendar feed", () => {
       .where(eq(sessions.id, fixture.abstractIds[0]));
     const other = await seedOtherEvent(ctx.db);
 
-    const { body } = await load(
-      [unpublishedId, fixture.abstractIds[0], deletedId, other.programSessionId].join(","),
-    );
-    const properties = parseIcs(body);
-    expect(icsValues(properties, "BEGIN").filter((value) => value === "VEVENT")).toEqual([]);
-    expect(icsValues(properties, "SUMMARY")).toEqual([]);
+    /*
+     * These four resolve to nothing for four different reasons, and every one
+     * of them now answers exactly as a garbage id does. The content assertion
+     * this test used to make (no SUMMARY leaks) is strictly preserved by a
+     * 404 — a thrown response carries no session data at all — while the
+     * uniform status is what stops the reply from distinguishing "unpublished"
+     * from "never existed".
+     */
+    await expect(
+      load([unpublishedId, fixture.abstractIds[0], deletedId, other.programSessionId].join(",")),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it("MUST NOT FIRE: an explicitly empty selection is a valid empty calendar", async () => {

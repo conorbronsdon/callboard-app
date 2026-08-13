@@ -111,6 +111,10 @@ function templateLabel(key: string | null): string {
   return isTemplateKey(key) ? DEFAULT_TEMPLATES[key].name : key;
 }
 
+export function meta() {
+  return [{ title: "Comms — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs): Promise<CommsData> {
   await requireAdmin(request);
   const event = await currentEvent(request);

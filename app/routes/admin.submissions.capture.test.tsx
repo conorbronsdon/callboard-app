@@ -32,7 +32,11 @@ import { installTestDb, type TestDbContext } from "~/test/db";
 import { CFP_FORM_ID, EVENT_ID, seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
 import { action } from "./admin.submissions";
-import { SubmissionDetailView, loader as detailLoader } from "./admin.submission";
+import {
+  SubmissionDetailView,
+  loader as detailLoader,
+  submissionLoaderPayload,
+} from "./admin.submission";
 
 type ActionArgs = Parameters<typeof action>[0];
 type DetailLoaderArgs = Parameters<typeof detailLoader>[0];
@@ -299,14 +303,16 @@ describe("provenance is visible on the submission detail", () => {
     });
     const captured = await capturedRow();
 
-    const detail = await detailLoader({
-      request: await signedInGet(
-        `https://x.test/admin/submissions/${captured!.id}`,
-        fixture.adminId,
-      ),
-      params: { id: captured!.id },
-      context: {},
-    } as unknown as DetailLoaderArgs);
+    const detail = submissionLoaderPayload(
+      await detailLoader({
+        request: await signedInGet(
+          `https://x.test/admin/submissions/${captured!.id}`,
+          fixture.adminId,
+        ),
+        params: { id: captured!.id },
+        context: {},
+      } as unknown as DetailLoaderArgs),
+    );
     expect(detail.capture).not.toBeNull();
 
     const html = renderToStaticMarkup(<SubmissionDetailView {...detail} />);
@@ -315,14 +321,16 @@ describe("provenance is visible on the submission detail", () => {
     expect(html).toContain("nothing was sent to the speaker");
 
     // Must-not-fire control: an ordinary form submission has no banner.
-    const ordinary = await detailLoader({
-      request: await signedInGet(
-        `https://x.test/admin/submissions/${fixture.abstractIds[0]}`,
-        fixture.adminId,
-      ),
-      params: { id: fixture.abstractIds[0] },
-      context: {},
-    } as unknown as DetailLoaderArgs);
+    const ordinary = submissionLoaderPayload(
+      await detailLoader({
+        request: await signedInGet(
+          `https://x.test/admin/submissions/${fixture.abstractIds[0]}`,
+          fixture.adminId,
+        ),
+        params: { id: fixture.abstractIds[0] },
+        context: {},
+      } as unknown as DetailLoaderArgs),
+    );
     expect(ordinary.capture).toBeNull();
     expect(renderToStaticMarkup(<SubmissionDetailView {...ordinary} />)).not.toContain(
       "capture-provenance",

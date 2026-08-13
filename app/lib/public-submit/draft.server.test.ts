@@ -7,10 +7,11 @@
  * existing account as a co-speaker is not proof of control, though, so it must
  * never mutate that account's global profile. Each direction is tested here.
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  eventPeople,
   events,
   forms,
   people,
@@ -18,6 +19,10 @@ import {
   sessionRevisions,
   sessions,
 } from "~/db/schema";
+import { createLoginSession } from "~/lib/auth/auth.server";
+import { selectRecipients } from "~/lib/comms/bulk";
+import { loadComposeRecipients } from "~/lib/comms/bulk.server";
+import { loader as adminTasksLoader } from "~/routes/admin.tasks";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { CFP_FORM_ID, EVENT_ID, seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
@@ -248,5 +253,134 @@ describe("submitDraft — CFP submit revision", () => {
     expect(revision.editorName).toBe("Sam Speaker");
     expect(revision.title).toBe("A draft in progress");
     expect(revision.description).toBe("Body.");
+  });
+});
+
+/**
+ * The event role a submit confers.
+ *
+ * `admin.reviews` provisions a brand-new reviewer with `event_role = "reviewer"`
+ * — a legibility label, since `is_reviewer` is what actually carries the
+ * capability. But every speaker-scoped surface in the product filters
+ * `event_role = "speaker"` BY EQUALITY: `speakerRoster()` in admin.tasks, and
+ * each audience in comms/bulk. So a reviewer who then submitted a talk of their
+ * own stayed invisible as a speaker — unassignable as a task owner, and skipped
+ * by all_speakers/accepted/pending/outstanding_tasks/track, which includes their
+ * own acceptance mail. The insert here used `onConflictDoNothing()`, so the
+ * pre-existing row's label never moved.
+ *
+ * Submitting is the act that makes someone a speaker, so this is where the label
+ * is corrected — and ONLY from the two labels that mean "not yet a speaker".
+ * An organizer stays an organizer, and `is_reviewer` survives untouched: it is
+ * additive on purpose, and clobbering it would silently revoke a review
+ * assignment as a side effect of the person submitting a talk.
+ */
+describe("submitDraft — event role on submit", () => {
+  const soloSpeaker = (
+    email: string,
+    firstName: string,
+    lastName: string,
+  ): DraftView["participants"] => [
+    { role: "speaker", firstName, lastName, email, bio: "", isPrimary: true, answers: {} },
+  ];
+
+  /** A membership shaped the way admin.reviews provisioning shapes one. */
+  async function provision(email: string, eventRole: string, isReviewer: boolean) {
+    const personId = crypto.randomUUID();
+    await ctx.db.insert(people).values({ id: personId, email, fullName: "Ingrid Nandal" });
+    await ctx.db
+      .insert(eventPeople)
+      .values({ eventId: EVENT_ID, personId, eventRole, isReviewer });
+    return personId;
+  }
+
+  const membershipOf = (personId: string) =>
+    ctx.db.query.eventPeople.findFirst({
+      where: and(eq(eventPeople.eventId, EVENT_ID), eq(eventPeople.personId, personId)),
+    });
+
+  /** The task-assignee roster, read through the real admin loader. */
+  async function rosterEmails(): Promise<string[]> {
+    const url = "https://x.test/admin/tasks";
+    const cookie = (await createLoginSession(new Request(url), fixture.adminId)).split(";")[0];
+    const loaded = await adminTasksLoader({
+      request: new Request(url, { headers: { cookie } }),
+      params: {},
+      context: {},
+    } as never);
+    return loaded.roster.map((person) => person.email);
+  }
+
+  /** The bulk-comms audience, read through the real recipient loader. */
+  async function allSpeakerEmails(): Promise<string[]> {
+    const candidates = await loadComposeRecipients({ eventId: EVENT_ID, db: ctx.db });
+    return selectRecipients(candidates, "all_speakers").map((person) => person.email);
+  }
+
+  it("must fire: a reviewer who submits reaches the speaker roster and the all_speakers audience", async () => {
+    const email = "ingrid.nandal@example.com";
+    const personId = await provision(email, "reviewer", true);
+
+    // The premise, measured rather than assumed: both surfaces skip them first.
+    expect(await rosterEmails()).not.toContain(email);
+    expect(await allSpeakerEmails()).not.toContain(email);
+
+    const result = await submit(personId, soloSpeaker(email, "Ingrid", "Nandal"));
+    expect(result.ok).toBe(true);
+
+    expect((await membershipOf(personId))?.eventRole).toBe("speaker");
+    expect(await rosterEmails()).toContain(email);
+    expect(await allSpeakerEmails()).toContain(email);
+  });
+
+  it("must fire: a contact-role membership upgrades on submit too", async () => {
+    const email = "casey.contact@example.com";
+    const personId = await provision(email, "contact", false);
+
+    const result = await submit(personId, soloSpeaker(email, "Casey", "Contact"));
+    expect(result.ok).toBe(true);
+
+    expect((await membershipOf(personId))?.eventRole).toBe("speaker");
+    expect(await allSpeakerEmails()).toContain(email);
+  });
+
+  it("must NOT fire: the is_reviewer capability survives the upgrade", async () => {
+    const email = "ingrid.nandal@example.com";
+    const personId = await provision(email, "reviewer", true);
+
+    await submit(personId, soloSpeaker(email, "Ingrid", "Nandal"));
+
+    const membership = await membershipOf(personId);
+    expect(membership?.eventRole).toBe("speaker");
+    expect(membership?.isReviewer).toBe(true);
+  });
+
+  it.each(["organizer", "admin"])(
+    "must NOT fire: a submitting %s keeps their role and stays out of the speaker audience",
+    async (eventRole) => {
+      const email = `${eventRole}.submitter@example.com`;
+      const personId = await provision(email, eventRole, false);
+
+      const result = await submit(personId, soloSpeaker(email, "Robin", "Harlow"));
+      expect(result.ok).toBe(true);
+
+      expect((await membershipOf(personId))?.eventRole).toBe(eventRole);
+      expect(await allSpeakerEmails()).not.toContain(email);
+    },
+  );
+
+  it("must NOT fire: an existing speaker's membership row is left byte-for-byte alone", async () => {
+    // A speaker who also agreed to review — the additive shape, from the other
+    // side. Nothing about submitting again may disturb it.
+    const personId = fixture.speakerIds[0];
+    await ctx.db
+      .update(eventPeople)
+      .set({ isReviewer: true })
+      .where(and(eq(eventPeople.eventId, EVENT_ID), eq(eventPeople.personId, personId)));
+    const before = await membershipOf(personId);
+
+    await submit(personId, soloSpeaker("speaker@callboard.dev", "Sam", "Speaker"));
+
+    expect(await membershipOf(personId)).toEqual(before);
   });
 });

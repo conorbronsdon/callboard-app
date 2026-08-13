@@ -655,6 +655,13 @@ export const sessions = sqliteTable(
     /** Visible on the public agenda/gallery. */
     isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
     publishedAt: integer("published_at", { mode: "timestamp_ms" }),
+    /**
+     * When the speaker was successfully told this session is happening — i.e. the
+     * ACCEPT decision letter left the building for every speaker on the originating
+     * abstract. Null means "not told yet"; publishing holds until it is set, unless
+     * an organizer explicitly overrides.
+     */
+    speakerInformedAt: integer("speaker_informed_at", { mode: "timestamp_ms" }),
     /** Accept path: an abstract is composed INTO the program session it becomes. */
     composedIntoSessionId: text("composed_into_session_id"),
     /** Soft delete + /restore, matching Sessionboard. */

@@ -15,6 +15,7 @@ import { loadSubmissions } from "~/lib/portal/portal.server";
 import {
   SubmissionDetailView,
   loader as adminDetailLoader,
+  submissionLoaderPayload,
 } from "~/routes/admin.submission";
 import { action as adminSubmissionsAction } from "~/routes/admin.submissions";
 import { signedInGet, signedInPost } from "~/test/auth";
@@ -152,11 +153,13 @@ async function submitPublic(
 
 async function loadAdminDetail(id: string) {
   const request = await signedInGet(`https://x.test/admin/submissions/${id}`, fixture.adminId);
-  return adminDetailLoader({
-    request,
-    params: { id },
-    context: {},
-  } as unknown as AdminDetailArgs);
+  return submissionLoaderPayload(
+    await adminDetailLoader({
+      request,
+      params: { id },
+      context: {},
+    } as unknown as AdminDetailArgs),
+  );
 }
 
 describe("submitDraft named-option normalization", () => {

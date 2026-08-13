@@ -171,4 +171,9 @@ export default [
       id: `v1-metadata-${family}-create`,
     }),
   ]),
+  /*
+   * The splat ranks below every static `/v1` path in React Router, so it is a
+   * JSON 404 floor; known endpoints such as `/v1/events` still resolve first.
+   */
+  route("v1/*", "routes/v1.catchall.ts"),
 ] satisfies RouteConfig;

@@ -16,7 +16,12 @@ import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { SPEAKERS, seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
-import { SubmissionDetailView, action, loader } from "./admin.submission";
+import {
+  SubmissionDetailView,
+  action,
+  loader,
+  submissionLoaderPayload,
+} from "./admin.submission";
 
 type LoaderArgs = Parameters<typeof loader>[0];
 type ActionArgs = Parameters<typeof action>[0];
@@ -38,7 +43,9 @@ afterEach(() => ctx.close());
 const url = (id: string) => `https://x.test/admin/submissions/${id}`;
 
 async function load(id: string) {
-  return loader(asLoaderArgs(await signedInGet(url(id), fixture.adminId), id));
+  return submissionLoaderPayload(
+    await loader(asLoaderArgs(await signedInGet(url(id), fixture.adminId), id)),
+  );
 }
 async function post(id: string, fields: Record<string, string>) {
   return action(asActionArgs(await signedInPost(url(id), fixture.adminId, fields), id));

@@ -55,6 +55,10 @@ export interface IntegrationsAction {
 const fmt = (value: Date | null | undefined) =>
   value ? value.toISOString().slice(0, 16).replace("T", " ") : null;
 
+export function meta() {
+  return [{ title: "Integrations — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs): Promise<IntegrationsData> {
   await requireAdmin(request);
   const event = await currentEvent(request);

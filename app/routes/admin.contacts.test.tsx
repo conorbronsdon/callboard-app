@@ -251,8 +251,8 @@ describe("contact detail", () => {
 describe("duplicate surfacing and merge", () => {
   it("MUST FIRE: moves memberships and notes, tombstones the loser, and hides it", async () => {
     await ctx.db.insert(people).values([
-      { id: "merge-winner", email: "priya@example.com", fullName: "Priya Rao" },
-      { id: "merge-loser", email: "priya.r@example.com", fullName: "Priya Rao" },
+      { id: "merge-winner", email: "ingrid@example.com", fullName: "Ingrid Rao" },
+      { id: "merge-loser", email: "ingrid.r@example.com", fullName: "Ingrid Rao" },
     ]);
     await ctx.db.insert(eventPeople).values({ eventId: fixture.eventId, personId: "merge-loser" });
     await ctx.db.insert(contactNotes).values({ id: "merge-note", personId: "merge-loser", authorId: fixture.adminId, body: "Invite to the keynote dinner." });
@@ -298,6 +298,51 @@ describe("duplicate surfacing and merge", () => {
     ]);
     await postContacts({ intent: "merge", primaryId: "profile-winner", duplicateId: "profile-loser" });
     expect((await ctx.db.query.people.findFirst({ where: eq(people.id, "profile-winner") }))?.company).toBe("Winner Co");
+  });
+
+  it("MUST FIRE: clears the loser's adopted headshot and consent after merge", async () => {
+    await ctx.db.insert(people).values([
+      { id: "photo-winner", email: "photo.winner@example.com", fullName: "Photo Pair" },
+      {
+        id: "photo-loser",
+        email: "photo.loser@example.com",
+        fullName: "Photo Pair",
+        headshotKey: "uploads/loser-face.png",
+        photoPublishable: true,
+      },
+    ]);
+
+    await postContacts({ intent: "merge", primaryId: "photo-winner", duplicateId: "photo-loser" });
+
+    const winner = await ctx.db.query.people.findFirst({ where: eq(people.id, "photo-winner") });
+    const loser = await ctx.db.query.people.findFirst({ where: eq(people.id, "photo-loser") });
+    expect(winner?.headshotKey).toBe("uploads/loser-face.png");
+    expect(winner?.photoPublishable).toBe(true);
+    expect(loser?.headshotKey).toBeNull();
+    expect(loser?.photoPublishable).toBe(false);
+  });
+
+  it("MUST NOT FIRE: keeps the winner's headshot when the loser has none", async () => {
+    // A blanket cleanup must clear only the tombstone, never the surviving photo.
+    await ctx.db.insert(people).values([
+      {
+        id: "own-photo-winner",
+        email: "own.photo.winner@example.com",
+        fullName: "Own Photo Pair",
+        headshotKey: "uploads/winner-face.png",
+        photoPublishable: true,
+      },
+      { id: "no-photo-loser", email: "no.photo.loser@example.com", fullName: "Own Photo Pair" },
+    ]);
+
+    await postContacts({ intent: "merge", primaryId: "own-photo-winner", duplicateId: "no-photo-loser" });
+
+    const winner = await ctx.db.query.people.findFirst({ where: eq(people.id, "own-photo-winner") });
+    const loser = await ctx.db.query.people.findFirst({ where: eq(people.id, "no-photo-loser") });
+    expect(winner?.headshotKey).toBe("uploads/winner-face.png");
+    expect(winner?.photoPublishable).toBe(true);
+    expect(loser?.headshotKey).toBeNull();
+    expect(loser?.photoPublishable).toBe(false);
   });
 
   it("MUST FIRE and MUST NOT FIRE: flags only repeated normalized names", async () => {

@@ -65,6 +65,10 @@ function toDraft(row: {
   };
 }
 
+export function meta() {
+  return [{ title: "Portal form — callboard admin" }];
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   await requireAdmin(request);
   const event = await requireCurrentEvent(request);

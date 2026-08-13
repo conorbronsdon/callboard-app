@@ -11,12 +11,16 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { forms, people, sessionParticipants, sessions } from "~/db/schema";
+import { PROGRAMME_MISSING_COPY } from "~/lib/portal/submission-edit";
 import { signedInGet, signedInPost } from "~/test/auth";
 import { installTestDb, type TestDbContext } from "~/test/db";
 import { CFP_FORM_ID, seedDemoFixture, type DemoFixture } from "~/test/fixtures";
 
 import { action, loader } from "./portal.submission.edit";
-import { loader as adminLoader } from "./admin.submission";
+import {
+  loader as adminLoader,
+  submissionLoaderPayload,
+} from "./admin.submission";
 
 type LoaderArgs = Parameters<typeof loader>[0];
 type ActionArgs = Parameters<typeof action>[0];
@@ -149,14 +153,16 @@ describe("add-coauthor", () => {
     expect(coAuthor?.isPrimary).toBe(false);
 
     // The organizer's review view is where the rubric looks for the label.
-    const admin = await adminLoader({
-      request: await signedInGet(
-        `https://x.test/admin/submissions/${fixture.abstractIds[TARGET]}`,
-        fixture.adminId,
-      ),
-      params: { id: fixture.abstractIds[TARGET] },
-      context: {},
-    } as never);
+    const admin = submissionLoaderPayload(
+      await adminLoader({
+        request: await signedInGet(
+          `https://x.test/admin/submissions/${fixture.abstractIds[TARGET]}`,
+          fixture.adminId,
+        ),
+        params: { id: fixture.abstractIds[TARGET] },
+        context: {},
+      } as never),
+    );
     expect(
       admin.speakers.map((speaker) => [speaker.name, speaker.role]),
     ).toContainEqual(["Marcus Okafor", "co_speaker"]);
@@ -312,5 +318,115 @@ describe("accepted proposals mirror onto the programme", () => {
     });
     expect((await rosterOf(abstractId)).map((row) => row.personId)).toContain(added!.id);
     expect((await rosterOf(programmeId)).map((row) => row.personId)).toContain(added!.id);
+  });
+});
+
+/**
+ * The SECOND lock, on the roster intents.
+ *
+ * `speakerEditLockReason` only knows about status and dates. An accepted
+ * submission whose composed programme row has gone missing is locked by a
+ * separate condition — the loader computes it as `programme_missing` and
+ * renders the un-editable screen, and `save` enforces it independently on its
+ * way past the optimistic-concurrency check.
+ *
+ * Both roster intents returned before ever reaching that enforcement, so a
+ * hand-built POST from the legitimate owner still mutated the roster of a
+ * submission the product had already declared locked. The pairing at the top of
+ * this file — "the roster opens and closes with title/abstract" — was true of
+ * the deadline lock and false of this one.
+ */
+describe("programme_missing locks the roster intents", () => {
+  /** Accepted, with its composed programme row no longer reachable. */
+  async function breakProgramme(abstractId: string) {
+    await ctx.db
+      .update(sessions)
+      .set({ composedIntoSessionId: null })
+      .where(eq(sessions.id, abstractId));
+  }
+
+  it("MUST NOT FIRE: add-coauthor is refused on a programme_missing submission", async () => {
+    await enableCoAuthors();
+    const abstractId = fixture.abstractIds[0];
+    const owner = fixture.speakerIds[0];
+    await breakProgramme(abstractId);
+
+    // The product already calls this locked; the server has to agree.
+    const loaded = await loadAs(owner, abstractId);
+    expect(loaded.submission).toMatchObject({
+      editable: false,
+      lockReason: "programme_missing",
+    });
+
+    const before = await rosterOf(abstractId);
+    const response = await postAs(owner, abstractId, {
+      intent: "add-coauthor",
+      name: "Marcus Okafor",
+      email: "marcus.okafor@example.com",
+      role: "co_speaker",
+    });
+
+    expect(statusOf(response)).toBe(409);
+    // The same sentence the locked screen shows, so the two surfaces cannot
+    // drift into telling the speaker two different stories.
+    expect(errorOf(response)).toBe(PROGRAMME_MISSING_COPY);
+    expect(await rosterOf(abstractId)).toEqual(before);
+    // Refused early enough that the co-author never became a person, either.
+    expect(
+      await ctx.db.query.people.findFirst({
+        where: eq(people.email, "marcus.okafor@example.com"),
+      }),
+    ).toBeUndefined();
+  });
+
+  it("MUST NOT FIRE: remove-coauthor is refused on a programme_missing submission", async () => {
+    await enableCoAuthors();
+    const abstractId = fixture.abstractIds[0];
+    const owner = fixture.speakerIds[0];
+
+    // Add one while the submission is still healthy…
+    expect(
+      statusOf(
+        await postAs(owner, abstractId, {
+          intent: "add-coauthor",
+          name: "Marcus Okafor",
+          email: "marcus.okafor@example.com",
+          role: "co_speaker",
+        }),
+      ),
+    ).toBe(302);
+    const added = await ctx.db.query.people.findFirst({
+      where: eq(people.email, "marcus.okafor@example.com"),
+    });
+
+    // …then lose the programme row underneath it.
+    await breakProgramme(abstractId);
+    const before = await rosterOf(abstractId);
+
+    const response = await postAs(owner, abstractId, {
+      intent: "remove-coauthor",
+      personId: added!.id,
+    });
+
+    expect(statusOf(response)).toBe(409);
+    expect(errorOf(response)).toBe(PROGRAMME_MISSING_COPY);
+    expect(await rosterOf(abstractId)).toEqual(before);
+  });
+
+  it("MUST STILL FIRE: an accepted submission that still has its programme takes the same POST", async () => {
+    await enableCoAuthors();
+    const abstractId = fixture.abstractIds[0];
+    const owner = fixture.speakerIds[0];
+    const before = await rosterOf(abstractId);
+
+    const response = await postAs(owner, abstractId, {
+      intent: "add-coauthor",
+      name: "Marcus Okafor",
+      email: "marcus.okafor@example.com",
+      role: "co_speaker",
+    });
+
+    expect(statusOf(response)).toBe(302);
+    expect(await rosterOf(abstractId)).toHaveLength(before.length + 1);
   });
 });

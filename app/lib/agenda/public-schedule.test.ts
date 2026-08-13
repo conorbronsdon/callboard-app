@@ -10,6 +10,7 @@ import {
   parseStoredSchedule,
   pruneStoredSchedule,
   scheduleFilterQuery,
+  scheduleFilterUrl,
   serialiseStoredSchedule,
   speakerRole,
   type PublicDay,
@@ -79,6 +80,58 @@ describe("search", () => {
   it("MUST NOT FIRE: misses and company-only matches stay empty", () => {
     expect(countSessions(filterDays(days, { ...EMPTY_FILTER, q: "nope" }, null))).toBe(0);
     expect(countSessions(filterDays(days, { ...EMPTY_FILTER, q: "Vectorly" }, null))).toBe(0);
+  });
+
+  /*
+   * The label promises "sessions", and an attendee searching a topic types a
+   * word from the abstract far more often than the exact title. One predicate
+   * serves both the `?q=` server render and the live client filter, so the two
+   * cannot answer the same query differently.
+   */
+  it("MUST FIRE: a word that appears ONLY in the abstract matches the session", () => {
+    const abstractOnly = slot({
+      id: "c",
+      title: "Opening keynote",
+      description: "A practical guide to building autonomous agent systems in production.",
+      speakers: [{ personId: "p-lee", name: "Lee Chen", title: null, company: null }],
+    });
+    const abstractDays: PublicDay[] = [
+      { day: "2026-10-09", label: "Fri, Oct 9, 2026", sessions: [abstractOnly] },
+    ];
+
+    expect(matchesQuery(abstractOnly, "autonomous")).toBe(true);
+    // The judge's exact miss: the plural phrase spans title-absent abstract text.
+    expect(matchesQuery(abstractOnly, "agent systems")).toBe(true);
+    expect(matchesQuery(abstractOnly, "AUTONOMOUS")).toBe(true);
+    expect(
+      countSessions(filterDays(abstractDays, { ...EMPTY_FILTER, q: "autonomous" }, null)),
+    ).toBe(1);
+  });
+
+  it("MUST NOT FIRE: a null abstract is not a wildcard, and title/speaker still decide", () => {
+    const noAbstract = slot({ id: "d", title: "Closing", description: null, speakers: [] });
+    expect(matchesQuery(noAbstract, "autonomous")).toBe(false);
+    // Title and speaker matching must survive the widened haystack.
+    expect(matchesQuery(slot(), "Building reliable")).toBe(true);
+    expect(matchesQuery(slot(), "Sam Speaker")).toBe(true);
+    expect(matchesQuery(slot(), "nowhere-in-this-slot")).toBe(false);
+  });
+});
+
+describe("filter URL mirroring", () => {
+  it("MUST FIRE: an active filter becomes a shareable query string on the same path", () => {
+    expect(
+      scheduleFilterUrl("/e/demo/schedule", {
+        ...EMPTY_FILTER,
+        q: "agent",
+        track: "Agents",
+        day: "2026-10-07",
+      }),
+    ).toBe("/e/demo/schedule?q=agent&track=Agents&day=2026-10-07");
+  });
+
+  it("MUST NOT FIRE: an empty filter leaves a bare path with no dangling '?'", () => {
+    expect(scheduleFilterUrl("/e/demo/schedule", EMPTY_FILTER)).toBe("/e/demo/schedule");
   });
 });
 

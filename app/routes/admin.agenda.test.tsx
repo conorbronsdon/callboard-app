@@ -694,6 +694,7 @@ describe("render: zero states", () => {
         counts={{ total: 0, scheduled: 0, unscheduled: 0, published: 0, conflicts: 0 }}
         notice={null}
         warning={null}
+        heldForUninformed={[]}
       />,
     );
     // Product copy, not a developer instruction (the de-scaffolding gate in
@@ -718,6 +719,7 @@ describe("render: zero states", () => {
         counts={{ total: 0, scheduled: 0, unscheduled: 0, published: 0, conflicts: 0 }}
         notice={null}
         warning={null}
+        heldForUninformed={[]}
       />,
     );
     expect(markup).toContain("This event has no dates yet");

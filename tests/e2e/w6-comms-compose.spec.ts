@@ -19,20 +19,20 @@ test("organizer previews resolved template copy and bulk-sends it to all speaker
   await expect(compose.getByLabel("Body")).toHaveValue(/\{\{(?:speaker\.first_name|first_name)\}\}/);
 
   // `selectOption({ label })` takes a string, never a regex, and the option text
-  // carries the address: "Priya Raman (priya.raman@example.com)". Resolve the
+  // carries the address: "Ingrid Falconer (ingrid.falconer@example.com)". Resolve the
   // value instead of pinning the email — and assert the seeded speaker is really
   // in the selected set rather than silently previewing whoever came first.
   const previewSelect = compose.getByLabel("Preview recipient");
-  const priyaValue = await previewSelect
-    .locator("option", { hasText: "Priya Raman" })
+  const ingridValue = await previewSelect
+    .locator("option", { hasText: "Ingrid Falconer" })
     .first()
     .getAttribute("value");
-  expect(priyaValue).toBeTruthy();
-  await previewSelect.selectOption(priyaValue as string);
+  expect(ingridValue).toBeTruthy();
+  await previewSelect.selectOption(ingridValue as string);
   await compose.getByRole("button", { name: "Preview", exact: true }).click();
   const preview = page.getByTestId("comms-preview");
-  await expect(preview).toContainText("Rendered for Priya Raman");
-  await expect(page.getByTestId("comms-preview-body")).toContainText("Hi Priya");
+  await expect(preview).toContainText("Rendered for Ingrid Falconer");
+  await expect(page.getByTestId("comms-preview-body")).toContainText("Hi Ingrid");
   // SPK-14 evidence: raw and resolved forms remain visible together.
   await expect(compose.getByLabel("Body")).toHaveValue(/\{\{(?:speaker\.first_name|first_name)\}\}/);
   await expect(preview).toBeVisible();

@@ -68,13 +68,13 @@
       }
     },
     {
-      "name": "Dr. Priya Sharma",
-      "email": "priya.sharma@example.com",
+      "name": "Dr. Ingrid Sharma",
+      "email": "ingrid.sharma@example.com",
       "company": "ModelGuard Systems",
       "title": "Principal Scientist",
       "bio": "15+ years in applied machine learning and systems design. Currently focused on building robust evaluation systems for production models. Co-authored several papers on LLM safety and reliability. Mentor and speaker on responsible AI practices.",
       "links": {
-        "twitter": "@priya_modelguard"
+        "twitter": "@ingrid_modelguard"
       }
     },
     {

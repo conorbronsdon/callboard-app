@@ -545,6 +545,35 @@ describe("portal submission correction route", () => {
     },
   );
 
+  /*
+   * The redirect target has to NAME the record.
+   *
+   * `/portal/submissions#<id>` is a bare list URL: the list re-derives the
+   * AMBIENT event from the session cookie rather than from the row that was
+   * just written. A speaker with proposals in two events therefore corrects a
+   * talk in one event and can land on the other event's list, with the edit
+   * they just made nowhere on the page. Every other write on this route — both
+   * co-author intents — already redirects to the record-named route, which
+   * re-derives the event from the submission id itself.
+   */
+  it("MUST FIRE: a successful correction redirects to the record-named edit route", async () => {
+    const target = fixture.abstractIds[3];
+    const owner = fixture.speakerIds[3];
+    const loaded = await loadAs(owner, target);
+
+    const result = await postAs(owner, target, {
+      expectedUpdatedAt: String(loaded.submission.updatedAt),
+      title: "A correction that must land back on its own record",
+      abstract: validAbstract,
+      videoUrl: "",
+    });
+
+    expect(statusOf(result)).toBe(302);
+    expect((result as Response).headers.get("location")).toBe(
+      `/portal/submissions/${target}/edit`,
+    );
+  });
+
   it("requires an event-owned CFP form", async () => {
     const target = fixture.abstractIds[3];
     const owner = fixture.speakerIds[3];

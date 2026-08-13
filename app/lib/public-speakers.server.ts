@@ -15,9 +15,10 @@ const PUBLIC_SPEAKER_ROLES = ["speaker", "co_speaker"] as const;
 
 /**
  * Keep this byte-for-byte equivalent to the programme predicate in
- * `app/routes/public.schedule.tsx`, which remains the source of truth while a
- * parallel lane owns it. Directory, detail, and qualification queries all use
- * this one helper so their public boundary cannot drift internally.
+ * `app/lib/agenda/public-schedule.server.ts`. These must stay equivalent
+ * because they enforce the same public boundary. Directory, detail, and
+ * qualification queries all use this one helper so their public boundary
+ * cannot drift internally.
  */
 export function publicSessionPredicate(eventId: string) {
   return and(

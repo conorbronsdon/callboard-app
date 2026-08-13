@@ -21,6 +21,10 @@ import {
 } from "~/lib/portal-form";
 import type { Route } from "./+types/admin.portalforms";
 
+export function meta() {
+  return [{ title: "Portal forms — callboard admin" }];
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const event = await requireCurrentEvent(request);

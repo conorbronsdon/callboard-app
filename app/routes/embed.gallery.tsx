@@ -20,6 +20,11 @@ import {
 } from "~/lib/public-speakers.server";
 import type { Route } from "./+types/embed.gallery";
 
+export function meta({ loaderData }: Route.MetaArgs) {
+  const event = loaderData?.event?.name;
+  return [{ title: event ? `Speaker gallery — ${event}` : "Speaker gallery — callboard" }];
+}
+
 export async function loader({ params, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const { theme, track, accent, density } = await resolveEmbedOptions(

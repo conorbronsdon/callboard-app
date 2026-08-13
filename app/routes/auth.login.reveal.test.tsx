@@ -91,7 +91,7 @@ describe("shouldRevealMagicLink", () => {
 });
 
 describe("/login surfaces the link only where it is allowed", () => {
-  async function post(email = "priya.speaker@example.com") {
+  async function post(email = "ingrid.speaker@example.com") {
     const request = new Request(LOGIN, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },

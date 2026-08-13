@@ -121,6 +121,48 @@ describe("textFromAiResponse", () => {
     expect(textFromAiResponse(undefined)).toBe("");
     expect(textFromAiResponse({})).toBe("");
   });
+
+  /*
+   * MUST FIRE: the live Workers AI binding for
+   * @cf/meta/llama-3.3-70b-instruct-fp8-fast returns an OpenAI-style
+   * chat.completion object — the text lives at choices[0].message.content and
+   * there is NO top-level `response` string. Captured 2026-08-12 from a real
+   * account API call (trimmed to the load-bearing fields; `response` appears
+   * only in the REST envelope, not the binding). This exact shape produced
+   * "The model returned no text" on the live demo, 7/7.
+   */
+  it("MUST FIRE: unwraps the OpenAI-style chat.completion shape the live binding returns", () => {
+    const live = {
+      choices: [
+        {
+          finish_reason: "stop",
+          index: 0,
+          logprobs: null,
+          message: {
+            annotations: null,
+            audio: null,
+            content: '{"score": 4}',
+            function_call: null,
+            reasoning: null,
+            refusal: null,
+            role: "assistant",
+          },
+        },
+      ],
+      created: 1786586745,
+      id: "chatcmpl-a8a6a3f2",
+      model: "@cf/meta/llama-3.3-70b-instruct-sd",
+      object: "chat.completion",
+      tool_calls: [],
+      usage: { prompt_tokens: 46, completion_tokens: 10, total_tokens: 56 },
+    };
+    expect(textFromAiResponse(live)).toBe('{"score": 4}');
+    expect(textFromAiResponse({ result: live })).toBe('{"score": 4}');
+    // Degenerate choices shapes stay empty rather than throwing.
+    expect(textFromAiResponse({ choices: [] })).toBe("");
+    expect(textFromAiResponse({ choices: [{ message: { content: null } }] })).toBe("");
+    expect(textFromAiResponse({ choices: "not-an-array" })).toBe("");
+  });
 });
 
 describe("buildTriagePrompt", () => {

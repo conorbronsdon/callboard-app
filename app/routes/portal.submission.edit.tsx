@@ -29,6 +29,7 @@ import {
 import { speakerVisibleStatus } from "~/lib/portal-progress";
 import { portalRecordContext } from "~/lib/portal/portal.server";
 import {
+  PROGRAMME_MISSING_COPY,
   SPEAKER_EDIT_LOCK_COPY,
   speakerEditLockReason,
   validateSubmissionEdit,
@@ -207,6 +208,28 @@ export async function action({ request, params }: Route.ActionArgs) {
     (role) => role.enabled && role.key !== "speaker",
   );
   const db = getDb();
+
+  if (
+    (intent === "add-coauthor" || intent === "remove-coauthor") &&
+    submission.status === "accepted"
+  ) {
+    const programme = submission.composedIntoSessionId
+      ? await db.query.sessions.findFirst({
+          where: and(
+            eq(sessions.id, submission.composedIntoSessionId),
+            eq(sessions.eventId, event.id),
+            eq(sessions.isAbstract, false),
+            isNull(sessions.deletedAt),
+          ),
+        })
+      : null;
+    if (!programme) {
+      return data(
+        { ok: false as const, errors: { form: PROGRAMME_MISSING_COPY } },
+        { status: 409 },
+      );
+    }
+  }
 
   if (intent === "add-coauthor") {
     if (coAuthorRoleConfigs.length === 0) {
@@ -579,7 +602,9 @@ export async function action({ request, params }: Route.ActionArgs) {
     now: updatedAt,
   });
 
-  return redirect("/portal/submissions#" + submission.id);
+  // The record-named route derives the event from this submission id; the
+  // submissions list would instead trust an unrelated ambient event cookie.
+  return redirect("/portal/submissions/" + submission.id + "/edit");
 }
 
 export default function EditSubmission({ loaderData, actionData }: Route.ComponentProps) {
@@ -599,7 +624,7 @@ export default function EditSubmission({ loaderData, actionData }: Route.Compone
           <h1 className="font-semibold">This submission is locked</h1>
           <p className="mt-1 text-sm">
             {submission.lockReason === "programme_missing"
-              ? "This accepted talk is missing its connected programme session. Contact the programme team."
+              ? PROGRAMME_MISSING_COPY
               : `${
                   SPEAKER_EDIT_LOCK_COPY[
                     submission.lockReason ?? "review_advanced"
