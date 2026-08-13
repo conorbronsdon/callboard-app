@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-13T00:11:17.417Z",
+  "capturedAt": "2026-08-13T18:02:10.299Z",
   "baseUrl": "https://demo.callboardhq.com",
   "warning": "Review every screenshot for private data before sharing.",
   "captures": [
@@ -12,7 +12,7 @@
       "finalUrl": "https://demo.callboardhq.com/e/frontier-ai-summit-2026",
       "title": "Frontier AI Summit 2026 — callboard",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 1440,
         "height": 1000
       }
@@ -26,7 +26,7 @@
       "finalUrl": "https://demo.callboardhq.com/submit/frontier-ai-summit-2026/000000fo-0000-4000-8000-000000000001",
       "title": "Speak at the Frontier AI Summit — Frontier AI Summit 2026",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 390,
         "height": 844
       }
@@ -38,9 +38,9 @@
       "caption": "Event health, counts, and the organizer's next actions.",
       "path": "/admin",
       "finalUrl": "https://demo.callboardhq.com/admin",
-      "title": "",
+      "title": "Dashboard — callboard admin",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 1440,
         "height": 1000
       }
@@ -52,9 +52,9 @@
       "caption": "CFP configuration, routing, validation, and publishing controls.",
       "path": "/admin/forms",
       "finalUrl": "https://demo.callboardhq.com/admin/forms",
-      "title": "",
+      "title": "Forms — callboard admin",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 1440,
         "height": 1000
       }
@@ -66,9 +66,9 @@
       "caption": "Seeded proposals in the pending decision pipeline.",
       "path": "/admin/submissions?tab=pending",
       "finalUrl": "https://demo.callboardhq.com/admin/submissions?tab=pending",
-      "title": "",
+      "title": "Submissions — callboard admin",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 1440,
         "height": 1000
       }
@@ -80,9 +80,9 @@
       "caption": "Room and time placement with dedicated conflict visibility.",
       "path": "/admin/agenda",
       "finalUrl": "https://demo.callboardhq.com/admin/agenda",
-      "title": "",
+      "title": "Agenda — callboard admin",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 1440,
         "height": 1000
       }
@@ -94,9 +94,9 @@
       "caption": "Templates and delivery history for speaker follow-through.",
       "path": "/admin/comms",
       "finalUrl": "https://demo.callboardhq.com/admin/comms",
-      "title": "",
+      "title": "Comms — callboard admin",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 1440,
         "height": 1000
       }
@@ -108,9 +108,9 @@
       "caption": "Portable data paths without putting integrations in the critical path.",
       "path": "/admin/integrations",
       "finalUrl": "https://demo.callboardhq.com/admin/integrations",
-      "title": "",
+      "title": "Integrations — callboard admin",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 1440,
         "height": 1000
       }
@@ -124,7 +124,7 @@
       "finalUrl": "https://demo.callboardhq.com/e/frontier-ai-summit-2026/schedule",
       "title": "Schedule — Frontier AI Summit 2026",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 1440,
         "height": 1000
       }
@@ -138,7 +138,7 @@
       "finalUrl": "https://demo.callboardhq.com/portal",
       "title": "Speaker portal — callboard",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 390,
         "height": 844
       }
@@ -152,7 +152,7 @@
       "finalUrl": "https://demo.callboardhq.com/portal/tasks",
       "title": "Your tasks — callboard",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 390,
         "height": 844
       }
@@ -166,7 +166,7 @@
       "finalUrl": "https://demo.callboardhq.com/portal/resources",
       "title": "Resources — callboard",
       "status": 200,
-      "viewport": {
+      "viewportSize": {
         "width": 390,
         "height": 844
       }
