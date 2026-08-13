@@ -1181,6 +1181,44 @@ export const syncState = sqliteTable(
   (t) => [uniqueIndex("sync_state_event_provider_idx").on(t.eventId, t.provider)],
 );
 
+/** Organization-level outbound webhook endpoints. Endpoint secrets are never listed. */
+export const webhooks = sqliteTable(
+  "webhooks",
+  {
+    id: uuid(),
+    url: text("url").notNull(),
+    /** Plaintext is required to sign future deliveries; expose only on create. */
+    secret: text("secret").notNull(),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [index("webhooks_active_idx").on(t.active)],
+);
+
+/** One final delivery outcome per local endpoint/event, or one Svix handoff. */
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: uuid(),
+    /** NULL in Svix mode because Svix, rather than Callboard, owns endpoints. */
+    webhookId: text("webhook_id").references(() => webhooks.id, {
+      onDelete: "set null",
+    }),
+    driver: text("driver", { enum: ["builtin", "svix"] }).notNull(),
+    event: text("event").notNull(),
+    resourceId: text("resource_id").notNull(),
+    status: text("status", { enum: ["success", "failed"] }).notNull(),
+    attempts: integer("attempts").notNull().default(1),
+    lastError: text("last_error"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("webhook_deliveries_created_idx").on(t.createdAt),
+    index("webhook_deliveries_webhook_idx").on(t.webhookId),
+  ],
+);
+
 /* ------------------------------------------------------------ exports */
 
 /**
@@ -1222,3 +1260,5 @@ export type AuthToken = typeof authTokens.$inferSelect;
 export type WebSession = typeof sessionsAuth.$inferSelect;
 export type Upload = typeof uploads.$inferSelect;
 export type UploadComment = typeof uploadComments.$inferSelect;
+export type Webhook = typeof webhooks.$inferSelect;
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;

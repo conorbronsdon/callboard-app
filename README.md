@@ -78,7 +78,7 @@ Suggested walkthrough:
 | Agenda | List/day/week/track/room/conflict views, pointer-correct drag and drop, no-JavaScript fallback, room and speaker overlap detection, an “Auto-place remaining” action that fills unscheduled sessions into conflict-free room/time slots, room and track CRUD, organizer session editing with attributed revision history and one-click restore, publishing that holds until speakers have been informed with an explicit per-session override, and public schedule with ordered speaker/co-speaker names |
 | Speaker roster | Add and edit speakers, participation status, portal-invite send, CSV import, and portal-form custom fields from organizer assignment through speaker answers |
 | API | Scoped keys, consistent envelopes, sessions/speakers/metadata endpoints, OpenAPI document, and developer page |
-| Integrations | Byte-exact Accelevents CSV pair, optional API push when configured, and non-blocking Airtable mirror |
+| Integrations | Byte-exact Accelevents CSV pair, optional API push when configured, non-blocking Airtable mirror, and built-in signed webhooks with optional Svix delivery |
 | Infrastructure | One Cloudflare Worker, D1, R2, React Router framework mode, Drizzle, Tailwind, Vitest, and Playwright |
 
 ## Limitations

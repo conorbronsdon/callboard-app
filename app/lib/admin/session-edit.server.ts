@@ -13,6 +13,7 @@ import {
   recordSessionRevision,
   type RevisionEditor,
 } from "~/lib/admin/session-revisions.server";
+import { emitWebhook } from "~/lib/webhooks/webhooks.server";
 
 type BatchArgument = Parameters<DB["batch"]>[0];
 type BatchStatement = BatchArgument[number];
@@ -146,6 +147,14 @@ export async function updateSessionContent(input: {
         source: input.editor.source ?? "admin_edit",
       },
       now: updatedAt,
+    });
+  }
+
+  for (const id of updatedIds) {
+    await emitWebhook("session.updated", id, {
+      eventId: input.eventId,
+      title: checked.value.title,
+      description: checked.value.description,
     });
   }
 

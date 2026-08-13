@@ -26,3 +26,8 @@ DEMO_MODE="1"
 # Playwright web server sets this itself, so an e2e run cannot post real email;
 # set it here too if you keep a live key around and want dev runs kept local.
 # MAIL_DRIVER="console"
+
+# Optional outbound-webhook driver. Set BOTH to hand events to Svix; with either
+# or both absent, Callboard uses its built-in per-endpoint signed delivery.
+# SVIX_TOKEN="..."
+# SVIX_APP_ID="app_..."

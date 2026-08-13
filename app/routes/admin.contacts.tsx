@@ -26,6 +26,7 @@ import { listEvents } from "~/lib/event.server";
 import { getMailer } from "~/lib/mail/mailer.server";
 import { enrollContact } from "~/lib/pipeline.server";
 import { parseSpeakerCsv, type SpeakerImportPlan } from "~/lib/speakers/import-csv";
+import { emitWebhook } from "~/lib/webhooks/webhooks.server";
 import type { Route } from "./+types/admin.contacts";
 
 type BatchArgument = Parameters<ReturnType<typeof getDb>["batch"]>[0];
@@ -546,6 +547,10 @@ export async function action({ request }: Route.ActionArgs) {
       }).where(eq(people.id, duplicateId)),
     ];
     await db.batch(statements as unknown as BatchArgument);
+    await emitWebhook("contact.merged", primaryId, {
+      mergedAwayId: duplicateId,
+      survivorId: primaryId,
+    });
     const memberships = membershipRows[0]?.count ?? 0;
     const notesMoved = noteRows[0]?.count ?? 0;
     return {
@@ -597,6 +602,13 @@ export async function action({ request }: Route.ActionArgs) {
     }));
     const statements = chunkedInsert(rows, (chunk) => db.insert(people).values(chunk));
     if (statements.length > 0) await db.batch(statements as unknown as BatchArgument);
+
+    for (const row of rows) {
+      await emitWebhook("contact.created", row.id, {
+        email: row.email,
+        fullName: row.fullName,
+      });
+    }
 
     return {
       ok: true as const,

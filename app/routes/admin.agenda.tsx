@@ -71,6 +71,7 @@ import {
 import { currentEvent } from "~/lib/event.server";
 import { appUrl } from "~/lib/env.server";
 import { notifyDecisions } from "~/lib/review/decision-notify.server";
+import { emitWebhook } from "~/lib/webhooks/webhooks.server";
 import type { Route } from "./+types/admin.agenda";
 
 export const AGENDA_VIEWS = ["list", "day", "week", "track", "room", "conflicts"] as const;
@@ -623,6 +624,13 @@ export async function action({ request }: Route.ActionArgs) {
       })
       .where(eq(sessions.id, sessionId));
 
+    if (published && !target.isPublic) {
+      await emitWebhook("session.published", sessionId, {
+        eventId: event.id,
+        source: "admin.agenda.set-published",
+      });
+    }
+
     // WS5 seam. Publishing a timed session is the first moment its speakers
     // may be told about it; pulling it back cancels what they were sent.
     await notifyScheduleChange({
@@ -685,6 +693,10 @@ export async function action({ request }: Route.ActionArgs) {
       // lane exists to prevent. Each send is individually guarded, and a session
       // whose speakers already hold an invite gets an update, not a duplicate.
       for (const sessionId of publishableIds) {
+        await emitWebhook("session.published", sessionId, {
+          eventId: event.id,
+          source: "admin.agenda.publish-all",
+        });
         await notifyScheduleChange({
           request,
           event,

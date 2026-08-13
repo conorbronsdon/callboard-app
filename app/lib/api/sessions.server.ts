@@ -18,6 +18,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from "
 
 import { getDb } from "~/db/client.server";
 import { isSessionInformed } from "~/lib/agenda/informed-gate.server";
+import { emitWebhook } from "~/lib/webhooks/webhooks.server";
 import {
   formats,
   levels,
@@ -817,6 +818,9 @@ export async function createSession(
     return { ok: false, error: { code: "validation", message: "Create failed." } };
   }
   const hydrated = await getSession(eventId, created.id);
+  if (hydrated) {
+    await emitWebhook("session.created", created.id, { eventId, session: hydrated });
+  }
   return hydrated
     ? { ok: true, value: hydrated }
     : { ok: false, error: { code: "not_found", message: "Created row vanished." } };
@@ -916,6 +920,12 @@ export async function updateSession(
   }
 
   const updated = await getSession(eventId, sessionId);
+  if (updated) {
+    const event = values.isPublic === true && !existing.isPublic
+      ? "session.published"
+      : "session.updated";
+    await emitWebhook(event, sessionId, { eventId, session: updated });
+  }
   return updated
     ? { ok: true, value: updated }
     : { ok: false, error: { code: "not_found", message: "Session not found." } };
@@ -945,6 +955,7 @@ export async function softDeleteSession(
       error: { code: "not_found", message: "Session not found, or already deleted." },
     };
   }
+  await emitWebhook("session.deleted", rows[0].id, { eventId, deletedAt: now.toISOString() });
   return { ok: true, value: { id: rows[0].id, deleted_at: now.toISOString() } };
 }
 

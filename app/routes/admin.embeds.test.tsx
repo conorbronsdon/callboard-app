@@ -14,6 +14,29 @@ type LoaderArgs = Parameters<typeof loader>[0];
 type ActionArgs = Parameters<typeof action>[0];
 type LoaderData = Awaited<ReturnType<typeof loader>>;
 
+/**
+ * Playwright's default matcher for `getByLabel`/`getByRole({ name })` is
+ * case-insensitive SUBSTRING containment, not equality — a landmine EMB-15
+ * actually stepped on: "Track for Schedule" (the filter select) and "Hide
+ * Track for Schedule" (the new hide-field checkbox) are two DIFFERENT
+ * strings — an exact-duplicate check sees no collision — but the second
+ * CONTAINS the first, so `getByLabel("Track for Schedule")` resolved to both
+ * and threw a strict-mode violation in `tests/e2e/embed-area.spec.ts`. This
+ * is the detector the exact-duplicate check above was missing.
+ */
+function findAccessibleNameCollisions(labels: readonly string[]): string[] {
+  const unique = [...new Set(labels)];
+  const collisions: string[] = [];
+  for (const a of unique) {
+    for (const b of unique) {
+      if (a !== b && b.toLowerCase().includes(a.toLowerCase())) {
+        collisions.push(`"${a}" is contained in "${b}"`);
+      }
+    }
+  }
+  return collisions;
+}
+
 const loaderArgs = (request: Request) =>
   ({ request, params: {}, context: {} }) as unknown as LoaderArgs;
 const actionArgs = (request: Request) =>
@@ -135,7 +158,7 @@ describe("admin embeds loader and render", () => {
     expect(data.selectedHiddenFields).toEqual(["room"]);
     const html = markup(data);
     expect(html).toContain(".card{color:red}");
-    expect(html).toMatch(/aria-label="Hide Room for Schedule"[^>]*checked/);
+    expect(html).toMatch(/aria-label="Hide Room field for Schedule"[^>]*checked/);
     expect(html).toContain("format=json&amp;hide=room");
     expect(html).toContain("Fetch Frontier AI Summit 2026");
   });
@@ -370,6 +393,29 @@ describe("admin embeds actions", () => {
     expect(labels).toContain("Get Code for Speakers");
     expect(labels).toContain("Get Code for Agenda by day");
     expect(labels).toContain("Get Code for Speaker gallery");
+
+    // The exact-duplicate check above is not enough — see
+    // `findAccessibleNameCollisions`'s own doc comment for the regression
+    // this closes (EMB-15's "Hide Track for Schedule" checkbox silently
+    // containing the pre-existing "Track for Schedule" filter select).
+    expect(findAccessibleNameCollisions(labels)).toEqual([]);
+    expect(labels).toContain("Hide Room field for Schedule");
+    expect(labels).toContain("Hide Track field for Schedule");
+  });
+
+  it("MUST FIRE: the substring-collision detector itself catches EMB-15's actual regression", () => {
+    // Fixture is the two REAL labels from before the fix (see git blame on
+    // admin.embeds.tsx's hide-field checkbox) — proves the detector used
+    // above can fail, not just that today's page happens to pass it.
+    expect(
+      findAccessibleNameCollisions(["Track for Schedule", "Hide Track for Schedule"]),
+    ).toEqual(['"Track for Schedule" is contained in "Hide Track for Schedule"']);
+  });
+
+  it("MUST NOT FIRE: the detector does not flag genuinely distinct labels", () => {
+    expect(
+      findAccessibleNameCollisions(["Theme for Schedule", "Theme for Speakers", "Get Code for Schedule"]),
+    ).toEqual([]);
   });
 
   it("gives two saved-row controls two distinct accessible names", async () => {

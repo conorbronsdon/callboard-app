@@ -87,6 +87,7 @@ import {
   tabFor,
 } from "~/lib/review/pipeline";
 import { parseRubric } from "~/lib/review/scoring";
+import { emitWebhook } from "~/lib/webhooks/webhooks.server";
 import { abstractTextOf, detailUrl } from "./admin.submission";
 import type { Route } from "./+types/admin.submissions";
 
@@ -680,7 +681,7 @@ export async function action({ request }: Route.ActionArgs) {
     }
     const status: SessionStatus = isAbstract ? statusRaw : "accepted";
 
-    await db.insert(sessions).values({
+    const [created] = await db.insert(sessions).values({
       eventId: event.id,
       friendlyId: await nextFriendlyId(event.id, isAbstract ? "ABS" : "SESS"),
       title,
@@ -696,6 +697,12 @@ export async function action({ request }: Route.ActionArgs) {
       endsAt: optionalDate(formData.get("endsAt")),
       capacity: optionalInt(formData.get("capacity")),
       isPublic: false,
+    }).returning({ id: sessions.id });
+
+    await emitWebhook("session.created", created.id, {
+      eventId: event.id,
+      kind,
+      source: "admin.submissions.create-record",
     });
 
     return redirect(
@@ -798,6 +805,12 @@ export async function action({ request }: Route.ActionArgs) {
     // D1 has no interactive transactions; a half-landed capture would be a row
     // whose speaker link never arrived.
     await db.batch(statements as unknown as BatchArgument);
+
+    await emitWebhook("session.created", sessionId, {
+      eventId: event.id,
+      kind: "abstract",
+      source: "admin.submissions.capture-on-behalf",
+    });
 
     return redirect(listUrl("pending", trackFilter, "&created=capture"));
   }

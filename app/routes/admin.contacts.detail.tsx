@@ -22,6 +22,7 @@ import {
   moveEntry,
   removeEntry,
 } from "~/lib/pipeline.server";
+import { emitWebhook } from "~/lib/webhooks/webhooks.server";
 import type { Route } from "./+types/admin.contacts.detail";
 
 const BUTTON = buttonClass("primary");
@@ -282,6 +283,10 @@ export async function action({ request, params }: Route.ActionArgs) {
       return { ok: false as const, error: `Travel notes are ${travelNotes.length} characters; the limit is 2000.` };
     }
     await db.update(people).set({ travelNotes: travelNotes || null }).where(eq(people.id, contact.id));
+    await emitWebhook("contact.updated", contact.id, {
+      field: "travelNotes",
+      travelNotes: travelNotes || null,
+    });
     return { ok: true as const, intent, notice: "Travel and logistics saved." };
   }
 

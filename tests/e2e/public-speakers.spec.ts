@@ -6,6 +6,57 @@ import { expect, test } from "@playwright/test";
 
 const EVENT = "frontier-ai-summit-2026";
 
+/**
+ * `react-router dev` (Vite) bakes a handful of `@`-prefixed internal module
+ * paths into EVERY SSR response, unconditionally — `/@id/__x00__virtual:...`,
+ * `/@react-router/critical.css`, `/node_modules/@react-router/dev/...`. A bare
+ * `curl` of this exact route (no browser, no JS, so no timing involved at
+ * all) shows all of them present on every single request; they are baked
+ * into the bytes the server sends before the response line even finishes.
+ *
+ * `not.toContain("@")` against raw `body.innerHTML()` therefore was never
+ * actually checking for a leak — it was racing whichever client-side
+ * lifecycle event clears these dev-only script/link tags out of the live DOM
+ * (`<Scripts />` renders them once, for hydration bootstrap, then a
+ * post-hydration re-render stops re-emitting them). On a fast response the
+ * race is usually won before this assertion runs; under load — a slow Vite
+ * module compile, a busy shared dev server — hydration lags and the
+ * still-present bootstrap tags trip the check, with zero connection to
+ * whether a real email address was ever on the page (root-caused against
+ * PR #176 / lane/embedgrab's port, GH run 31677447973 attempt 1: the failing
+ * capture's own network trace shows a 966ms initial load against ~100ms on a
+ * warm one, and EIGHT aborted subresource requests — a server under load,
+ * not a data leak).
+ *
+ * Stripping exactly these known, always-present, inert paths puts the
+ * assertion back to checking what it always meant to check: the rendered
+ * directory and the streamed loader-data payload, immune to both the
+ * hydration race and to `react-router dev`'s own internal URL scheme ever
+ * changing shape.
+ */
+function stripDevServerBootstrap(html: string): string {
+  return html.replace(/\/(?:@[\w-]+\/|node_modules\/@[\w-]+\/)[^\s"'<>]*/g, "");
+}
+
+test("MUST NOT FIRE: the dev server's own module bootstrap is not mistaken for a leak", () => {
+  const bootstrapOnly = [
+    '<link rel="modulepreload" href="/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx">',
+    '<link rel="stylesheet" href="/@react-router/critical.css?pathname=/e/x/speakers">',
+    '<script type="module" async="">',
+    'import "/@id/__x00__virtual:react-router/inject-hmr-runtime";',
+    'import("/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx");',
+    "</script>",
+  ].join("");
+  expect(stripDevServerBootstrap(bootstrapOnly)).not.toContain("@");
+});
+
+test("MUST FIRE: a real leaked email still trips the assertion", () => {
+  const withLeak =
+    '<span data-speaker-email>rina.okafor@example.com</span>' +
+    '<script type="module" async="">import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script>';
+  expect(stripDevServerBootstrap(withLeak)).toContain("@");
+});
+
 test("the public directory is complete, alphabetical, and email-free", async ({ page }) => {
   await page.goto(`/e/${EVENT}/speakers`);
 
@@ -25,8 +76,10 @@ test("the public directory is complete, alphabetical, and email-free", async ({ 
   }
   // The dev server injects Tailwind source into <head> (`@layer`, `@media`).
   // The body still contains both the rendered page and React Router's SSR
-  // loader serialisation, which are the privacy surfaces this assertion guards.
-  expect(await page.locator("body").innerHTML()).not.toContain("@");
+  // loader serialisation, which are the privacy surfaces this assertion
+  // guards — see `stripDevServerBootstrap` above for why the dev server's
+  // OWN module paths are excluded first.
+  expect(stripDevServerBootstrap(await page.locator("body").innerHTML())).not.toContain("@");
 });
 
 test("name search narrows the seeded roster and updates its count", async ({ page }) => {
@@ -69,6 +122,24 @@ test("gallery cards drill into a public profile with scheduled sessions", async 
 test("back from a searched gallery card restores the grid and the search", async ({ page }) => {
   await page.goto(`/e/${EVENT}/speakers`);
   await page.getByRole("link", { name: "Gallery" }).click();
+  /*
+   * MUST wait for the client-side transition to actually land before
+   * touching the search form. The Gallery link's navigation fetches new
+   * loader data in the background; the form's hidden `view=gallery` field
+   * only exists once React has re-rendered with the new `view`. Skip this
+   * wait (as this test used to) and, whenever that background fetch is slow
+   * enough to lose the race against Playwright's next action — a cold Vite
+   * module compile, a busy shared dev server — `fill` + `Search` submit the
+   * REAL `<form method="get">` against the STILL-list-view markup, missing
+   * the hidden field entirely: a genuine full-page GET to `?q=…` (verified
+   * in GH run 31677447973 attempt 1's network trace) that cancels the
+   * in-flight `.data?view=gallery` fetch outright (status -1, aborted) and
+   * lands back on the list view — exactly the failure this test exists to
+   * catch, self-inflicted by not waiting for it. `gallery cards drill into a
+   * public profile` (above) already gets this right; this test just needs
+   * the same wait before it goes on to fill the form.
+   */
+  await expect(page.locator('[data-speaker-view="gallery"]')).toBeVisible();
   await page.getByLabel("Search speakers").fill("sPeAkEr");
   await page.getByRole("button", { name: "Search" }).click();
 

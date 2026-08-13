@@ -1,8 +1,20 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const EVENT_SLUG = "frontier-ai-summit-2026";
-const SAVED_NAME = "Partner site schedule";
-const DISABLED_NAME = "Disabled gate schedule";
+/*
+ * A per-run suffix, not a literal constant. `workers: 1` means these tests
+ * run one at a time, but a test that fails PART way through a save can still
+ * leave a real row behind — Playwright does not roll back the D1 write just
+ * because a later assertion in the SAME test timed out. Two spec-level tests
+ * saving under fixed names is exactly the shape of state a partially-failed
+ * neighbor can collide with; a random suffix means "Partner site schedule"
+ * from a prior, incomplete run can never be mistaken for this run's row, so
+ * `toContainText`/`hasText` matches stay unambiguous regardless of what a
+ * failure elsewhere in this file left lying around.
+ */
+const RUN_ID = Math.random().toString(36).slice(2, 8);
+const SAVED_NAME = `Partner site schedule ${RUN_ID}`;
+const DISABLED_NAME = `Disabled gate schedule ${RUN_ID}`;
 
 async function enterOrganizerWorkspace(page: Page) {
   await page.goto("/demo");

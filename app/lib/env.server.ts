@@ -84,6 +84,10 @@ export type AppEnv = Omit<
   AIRTABLE_TOKEN?: string;
   /** Airtable base id (`app…`) the mirror writes into. */
   AIRTABLE_BASE?: string;
+  /** Svix bearer token. Both Svix values are required before this driver is active. */
+  SVIX_TOKEN?: string;
+  /** Svix application id whose endpoints receive Callboard events. */
+  SVIX_APP_ID?: string;
 };
 
 export function appEnv(): AppEnv {

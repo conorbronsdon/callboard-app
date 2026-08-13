@@ -433,7 +433,7 @@ export default function AdminEmbeds({ loaderData, actionData }: Route.ComponentP
                             type="checkbox"
                             name="hide"
                             value={field.id}
-                            aria-label={`Hide ${field.label} for ${widget.label}`}
+                            aria-label={`Hide ${field.label} field for ${widget.label}`}
                             defaultChecked={hiddenFields.includes(field.id)}
                             className="h-4 w-4 rounded border-gray-300"
                           />

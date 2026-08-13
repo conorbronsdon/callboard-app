@@ -32,6 +32,7 @@ import { appUrl } from "~/lib/env.server";
 import { getMailer } from "~/lib/mail/mailer.server";
 import { storeUpload } from "~/lib/portal/uploads.server";
 import { PUBLIC_SUBMIT_FILE_PURPOSE } from "~/lib/portal-uploads";
+import { emitWebhook } from "~/lib/webhooks/webhooks.server";
 
 import { sendSubmissionConfirmation } from "./confirmation";
 import {
@@ -426,6 +427,12 @@ export async function ensureDraft(context: {
       order: 0,
     }),
   ]);
+
+  await emitWebhook("session.created", id, {
+    eventId: context.event.id,
+    formId: context.form.id,
+    source: "public-submit.draft",
+  });
 
   return draft;
 }

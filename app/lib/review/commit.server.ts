@@ -31,6 +31,7 @@ import {
   tasks,
 } from "~/db/schema";
 import type { Mailer } from "~/lib/mail/mailer";
+import { emitWebhook } from "~/lib/webhooks/webhooks.server";
 
 import { notifyDecisions } from "./decision-notify.server";
 import {
@@ -418,6 +419,13 @@ export async function applyAbstractStatus(input: {
           now,
         });
 
+  if (decided && transitioned) {
+    await emitWebhook("decision.committed", input.abstractId, {
+      eventId: input.eventId,
+      status: input.status,
+    });
+  }
+
   return {
     status: input.status,
     sessionsComposed: composition.sessionsComposed,
@@ -503,6 +511,13 @@ export async function commitQueues(
           db,
           now,
         });
+
+  for (const abstractId of plan.accept) {
+    await emitWebhook("decision.committed", abstractId, { eventId, status: "accepted" });
+  }
+  for (const abstractId of plan.decline) {
+    await emitWebhook("decision.committed", abstractId, { eventId, status: "declined" });
+  }
 
   return {
     roundId: round.roundId,

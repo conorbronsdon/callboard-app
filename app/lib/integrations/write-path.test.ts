@@ -77,3 +77,58 @@ describe("the Airtable mirror stays off the write path", () => {
     expect(IMPORT_PATTERN.test('from "~/lib/integrations/airtable.server"')).toBe(true);
   });
 });
+
+/**
+ * Outbound events are truthful only when they originate at known durable write
+ * seams. This allowlist prevents a page loader, component, or speculative
+ * pre-write branch from quietly becoming an emitter.
+ */
+const WEBHOOK_ALLOWED = [
+  "lib/admin/session-edit.server.ts",
+  "lib/api/sessions.server.ts",
+  "lib/integrations/write-path.test.ts",
+  "lib/public-submit/draft.server.ts",
+  "lib/review/commit.server.ts",
+  "routes/admin.agenda.tsx",
+  "routes/admin.contacts.detail.tsx",
+  "routes/admin.contacts.tsx",
+  "routes/admin.submissions.tsx",
+].sort();
+
+const WEBHOOK_IMPORT_PATTERN =
+  /import\s*\{[^}]*\bemitWebhook\b[^}]*\}\s*from\s*["'][^"']*webhooks\/webhooks\.server["']/s;
+
+function webhookImporters(): string[] {
+  const found: string[] = [];
+  for (const file of walk(APP_DIR)) {
+    if (WEBHOOK_IMPORT_PATTERN.test(readFileSync(file, "utf8"))) {
+      found.push(relative(APP_DIR, file).replace(/\\/g, "/"));
+    }
+  }
+  return found.sort();
+}
+
+describe("outbound webhooks stay pinned to durable write paths", () => {
+  const found = webhookImporters();
+
+  it("NEGATIVE CONTROL: the scanner sees a real emitWebhook import", () => {
+    expect(found).toContain("lib/api/sessions.server.ts");
+  });
+
+  it("allows exactly the write-path modules intentionally wired", () => {
+    expect(found).toEqual(WEBHOOK_ALLOWED);
+  });
+
+  it("MUST NOT FIRE: a normal webhooks helper import is not mistaken for an emitter", () => {
+    expect(
+      WEBHOOK_IMPORT_PATTERN.test(
+        'import { listWebhooks } from "~/lib/webhooks/webhooks.server"',
+      ),
+    ).toBe(false);
+    expect(
+      WEBHOOK_IMPORT_PATTERN.test(
+        'import { emitWebhook } from "~/lib/webhooks/webhooks.server"',
+      ),
+    ).toBe(true);
+  });
+});

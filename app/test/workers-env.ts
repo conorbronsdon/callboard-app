@@ -11,6 +11,11 @@
  */
 export const env: Record<string, unknown> = {};
 
+/** Direct unit-test calls have no Worker request lifetime to extend. */
+export function waitUntil(_promise: Promise<unknown>): void {
+  throw new Error("waitUntil called outside a Worker request context");
+}
+
 /** Wipe every binding between tests so one test cannot leak into the next. */
 export function resetEnv(): void {
   for (const key of Object.keys(env)) delete env[key];
