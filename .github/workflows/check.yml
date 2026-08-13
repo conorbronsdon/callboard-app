@@ -73,8 +73,13 @@ jobs:
       - run: npx playwright install --with-deps chromium
 
       # The E2E runner owns, seeds, and removes a one-use local D1/R2 state root.
+      # The Workers AI binding is dropped: CI carries no Cloudflare credentials,
+      # and the remote proxy that binding requires would refuse to start.
+      # The app degrades to its tested "AI triage unavailable" state.
       - name: Playwright golden path
         run: npm run e2e
+        env:
+          CALLBOARD_DISABLE_AI_BINDING: "1"
 
       - name: Upload Playwright failure evidence
         if: failure()

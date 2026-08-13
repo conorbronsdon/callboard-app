@@ -47,6 +47,19 @@ export default defineConfig({
        * explicitly supplies console mail plus the disposable demo profile.
        */
       config: (config) => {
+        /*
+         * The Workers AI binding cannot be simulated locally, so the plugin
+         * opens a REMOTE proxy session for it — which demands Cloudflare
+         * credentials (CLOUDFLARE_API_TOKEN in non-interactive environments).
+         * CI has none, on purpose. Setting CALLBOARD_DISABLE_AI_BINDING=1
+         * drops the binding for that run; the app is built to degrade to a
+         * visible "AI triage unavailable in this deployment" state, which is
+         * itself covered by unit tests. Deploys never pass through Vite, so
+         * this cannot affect a deployed Worker.
+         */
+        if (process.env.CALLBOARD_DISABLE_AI_BINDING === "1" && "ai" in config) {
+          delete (config as { ai?: unknown }).ai;
+        }
         const forwarded = {
           ...(process.env.MAIL_DRIVER ? { MAIL_DRIVER: process.env.MAIL_DRIVER } : {}),
           ...(process.env.DEPLOYMENT_PROFILE
