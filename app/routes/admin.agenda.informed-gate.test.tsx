@@ -70,6 +70,7 @@ async function addProgrammeSession(options: {
 }): Promise<string> {
   counter += 1;
   const id = `gate-sess-${counter}`;
+  const startsAt = new Date(Date.now() + 86_400_000 + counter * 3_600_000);
   await ctx.db.insert(sessions).values({
     id,
     eventId: fixture.eventId,
@@ -80,8 +81,8 @@ async function addProgrammeSession(options: {
     roomId: fixture.roomIds[0],
     trackId: fixture.trackIds[0],
     formatId: fixture.formatIds[0],
-    startsAt: new Date(Date.now() + 86_400_000),
-    endsAt: new Date(Date.now() + 86_400_000 + 1_800_000),
+    startsAt,
+    endsAt: new Date(startsAt.getTime() + 1_800_000),
     isPublic: false,
     speakerInformedAt: options.informed ? new Date() : null,
   });

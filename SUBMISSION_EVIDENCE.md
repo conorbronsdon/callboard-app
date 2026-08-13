@@ -51,7 +51,7 @@ image for private data before sharing.
 
 The cold-judge routing table: each rubric area, the exact URLs that serve it, and
 one thing to try. Every route below is registered in `app/routes.ts` and was
-verified to exist on `main` at `fb76402`. Paths are relative to the deployed
+verified to exist on `main` at `2ebf55e`. Paths are relative to the deployed
 origin. `<slug>` is the seeded event `frontier-ai-summit-2026` (a Europe sibling,
 `frontier-ai-summit-europe-2026`, is seeded too so the event switcher has a
 second row); `<cfp>` is the seeded CFP form id

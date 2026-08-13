@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { DndPipelineBoard, pipelineDropIntent } from "~/components/pipeline-board";
 import {
   PIPELINE_STAGE_LABELS,
   PIPELINE_STAGES,
@@ -34,6 +35,10 @@ const PIPELINE_URL = "https://x.test/admin/pipeline";
 const CONTACTS_URL = "https://x.test/admin/contacts";
 const PIPELINE_SOURCE = readFileSync(
   fileURLToPath(new URL("./admin.pipeline.tsx", import.meta.url)),
+  "utf8",
+);
+const PIPELINE_BOARD_SOURCE = readFileSync(
+  fileURLToPath(new URL("../components/pipeline-board.tsx", import.meta.url)),
   "utf8",
 );
 
@@ -126,6 +131,51 @@ async function enroll(personId: string, stage = "prospect") {
 }
 
 describe("pipeline transitions", () => {
+  it("MUST FIRE: a dnd-shaped POST and button-shaped POST write identical attributed audits", async () => {
+    const dndEntryId = await enroll(fixture.speakerIds[0]);
+    const buttonEntryId = await enroll(fixture.speakerIds[1]);
+    const dndFields = pipelineDropIntent(dndEntryId, "contacted", PIPELINE_STAGES);
+    expect(dndFields).toEqual({
+      intent: "move",
+      entryId: dndEntryId,
+      stage: "contacted",
+    });
+
+    expect(await postPipeline(dndFields!, fixture.adminId)).toMatchObject({
+      ok: true,
+      moved: true,
+    });
+    expect(
+      await postPipeline(
+        { intent: "move", entryId: buttonEntryId, stage: "contacted" },
+        fixture.adminId,
+      ),
+    ).toMatchObject({ ok: true, moved: true });
+
+    const movedAuditFor = async (entryId: string) => {
+      const rows = await ctx.db
+        .select({
+          fromStage: stageTransitions.fromStage,
+          toStage: stageTransitions.toStage,
+          movedByPersonId: stageTransitions.movedByPersonId,
+        })
+        .from(stageTransitions)
+        .where(eq(stageTransitions.entryId, entryId));
+      return rows.find((row) => row.fromStage !== null);
+    };
+    const expectedAudit = {
+      fromStage: "prospect",
+      toStage: "contacted",
+      movedByPersonId: fixture.adminId,
+    };
+    const dndAudit = await movedAuditFor(dndEntryId);
+    const buttonAudit = await movedAuditFor(buttonEntryId);
+
+    expect(dndAudit).toEqual(expectedAudit);
+    expect(buttonAudit).toEqual(expectedAudit);
+    expect(dndAudit).toEqual(buttonAudit);
+  });
+
   it("MUST FIRE: enrolling then moving prospect to contacted writes the exact pair", async () => {
     const personId = fixture.speakerIds[0];
     await postDetail(personId, { intent: "enroll-pipeline", stage: "prospect" });
@@ -463,12 +513,38 @@ describe("board render", () => {
     expect(markup).toContain("No contacts here yet.");
   });
 
+  it("MUST FIRE: the hydrated dnd board retains the live e2e card controls", async () => {
+    await enroll(fixture.speakerIds[0], "prospect");
+    const markup = renderToStaticMarkup(<DndPipelineBoard data={await loadPipeline()} />);
+
+    expect(markup).toContain('data-testid="pipeline-board"');
+    expect(markup).toContain('data-testid="pipeline-column-prospect"');
+    expect(markup).toContain('data-testid="pipeline-column-contacted"');
+    expect(markup).toContain('data-testid="pipeline-column-in_conversation"');
+    expect(markup).toContain("<article");
+    expect(markup).toContain("Stage for Sam Speaker");
+    expect(markup).toContain(">Move</button>");
+    expect(markup).toContain(
+      'aria-label="Remove Sam Speaker from the sourcing pipeline"',
+    );
+    expect(markup).toContain('href="/admin/contacts/');
+  });
+
   it("MUST FIRE: every light color className has a dark-mode color", () => {
-    const coloredClassNames = classNameStrings(PIPELINE_SOURCE).filter((className) =>
+    const pipelineSources = `${PIPELINE_SOURCE}\n${PIPELINE_BOARD_SOURCE}`;
+    const coloredClassNames = classNameStrings(pipelineSources).filter((className) =>
       className.split(/\s+/).some((token) => LIGHT_COLOR.test(token)),
     );
     expect(coloredClassNames.length).toBeGreaterThan(0);
-    expect(classNamesMissingDarkColor(PIPELINE_SOURCE)).toEqual([]);
+    expect(classNamesMissingDarkColor(pipelineSources)).toEqual([]);
+  });
+
+  it("MUST FIRE: moved pipeline-board color classNames keep dark-mode coverage", () => {
+    const coloredClassNames = classNameStrings(PIPELINE_BOARD_SOURCE).filter((className) =>
+      className.split(/\s+/).some((token) => LIGHT_COLOR.test(token)),
+    );
+    expect(coloredClassNames.length).toBeGreaterThan(0);
+    expect(classNamesMissingDarkColor(PIPELINE_BOARD_SOURCE)).toEqual([]);
   });
 
   it("MUST FIRE: the dark-mode detector rejects its negative control", () => {

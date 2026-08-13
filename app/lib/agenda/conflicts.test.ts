@@ -9,14 +9,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CONFLICT_SEVERITY,
+  advisoryConflicts,
+  blockingConflicts,
   conflictLabel,
   conflictedSessionIds,
   conflictsBySession,
   findConflicts,
   findRoomConflicts,
   findSpeakerConflicts,
+  findTrackConflicts,
   intervalsOverlap,
+  isBlocking,
   isScheduled,
+  severityOf,
   type AgendaEntry,
 } from "./conflicts";
 
@@ -39,6 +45,8 @@ function entry(over: Partial<AgendaEntry> & { startsAt?: number | null }): Agend
     endsAt: over.endsAt ?? null,
     roomId: over.roomId ?? null,
     roomName: over.roomName ?? null,
+    trackId: over.trackId ?? null,
+    trackName: over.trackName ?? null,
     participants: over.participants ?? [],
   };
 }
@@ -241,6 +249,86 @@ describe("findSpeakerConflicts", () => {
     const a = at(DAY1, 10, 60, { id: "a", roomId: ROOM_A, participants: [] });
     const b = at(DAY1, 10, 60, { id: "b", roomId: ROOM_B });
     expect(findSpeakerConflicts([a, b])).toEqual([]);
+  });
+});
+
+describe("findTrackConflicts", () => {
+  const TRACK_A = "track-agents";
+  const TRACK_B = "track-evals";
+
+  it("MUST FIRE: same track with overlapping times", () => {
+    const a = at(DAY1, 10, 60, {
+      id: "a",
+      trackId: TRACK_A,
+      trackName: "Agents",
+    });
+    const b = at(DAY1, 10, 60, {
+      id: "b",
+      trackId: TRACK_A,
+      trackName: "Agents",
+    });
+
+    const found = findTrackConflicts([a, b]);
+    expect(found).toHaveLength(1);
+    expect(found[0].kind).toBe("track");
+    expect(found[0].resourceId).toBe(TRACK_A);
+    expect(found[0].resourceName).toBe("Agents");
+    expect(found[0].overlapMinutes).toBe(60);
+  });
+
+  it("MUST NOT FIRE: overlapping sessions in different tracks", () => {
+    const a = at(DAY1, 10, 60, { id: "a", trackId: TRACK_A });
+    const b = at(DAY1, 10, 60, { id: "b", trackId: TRACK_B });
+    expect(findTrackConflicts([a, b])).toEqual([]);
+  });
+
+  it("MUST NOT FIRE: null tracks are not a shared resource", () => {
+    const a = at(DAY1, 10, 60, { id: "a", trackId: null });
+    const b = at(DAY1, 10, 60, { id: "b", trackId: null });
+    expect(findTrackConflicts([a, b])).toEqual([]);
+  });
+
+  it("MUST NOT FIRE: adjacent sessions in the same track", () => {
+    const a = at(DAY1, 10, 60, { id: "a", trackId: TRACK_A });
+    const b = at(DAY1, 11, 60, { id: "b", trackId: TRACK_A });
+    expect(findTrackConflicts([a, b])).toEqual([]);
+  });
+});
+
+describe("conflict severity and labels", () => {
+  const room = findRoomConflicts([
+    at(DAY1, 10, 60, { id: "room-a", roomId: ROOM_A, roomName: "Main Stage" }),
+    at(DAY1, 10, 60, { id: "room-b", roomId: ROOM_A, roomName: "Main Stage" }),
+  ])[0];
+  const sam = { id: "p-sam", name: "Sam Speaker" };
+  const speaker = findSpeakerConflicts([
+    at(DAY1, 12, 60, { id: "speaker-a", participants: [sam] }),
+    at(DAY1, 12, 60, { id: "speaker-b", participants: [sam] }),
+  ])[0];
+  const track = findTrackConflicts([
+    at(DAY1, 14, 60, { id: "track-a", trackId: "track-ai", trackName: "AI Systems" }),
+    at(DAY1, 14, 60, { id: "track-b", trackId: "track-ai", trackName: "AI Systems" }),
+  ])[0];
+
+  it("maps every conflict kind to its exact severity", () => {
+    expect(CONFLICT_SEVERITY).toEqual({
+      room: "blocking",
+      speaker: "blocking",
+      track: "advisory",
+    });
+    expect(severityOf(room)).toBe("blocking");
+    expect(severityOf(speaker)).toBe("blocking");
+    expect(severityOf(track)).toBe("advisory");
+    expect(isBlocking(room)).toBe(true);
+    expect(isBlocking(track)).toBe(false);
+    expect(blockingConflicts([track, speaker, room])).toEqual([speaker, room]);
+    expect(advisoryConflicts([room, track, speaker])).toEqual([track]);
+  });
+
+  it("labels all three conflict kinds exactly", () => {
+    expect(conflictLabel(room)).toBe("Room double-booked · Main Stage");
+    expect(conflictLabel(speaker)).toBe("Speaker double-booked · Sam Speaker");
+    expect(conflictLabel(track)).toBe("Track overlap · AI Systems");
   });
 });
 

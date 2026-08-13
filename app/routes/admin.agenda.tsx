@@ -13,8 +13,13 @@
  *   (b) the Day board adds @dnd-kit drag inside `<ClientOnly>`; a drop fills in
  *       the same hidden form and submits the SAME action as (a).
  *
- * Scheduling INTO a conflict is ALLOWED and warned — the real product's
- * review-later model. Nothing here blocks a write.
+ * Conflict handling follows DECISIONS.md #70, which refines #13's warn-never-block
+ * rule rather than replacing it. An ADVISORY conflict (same-track overlap) is
+ * allowed and warned, exactly as before. A BLOCKING one (a double-booked room or
+ * person) is refused unless the organizer explicitly forces it, because that
+ * placement cannot physically happen. The move path predicts the conflicts a
+ * placement WOULD create before writing it — the drop flow and the JS-off form
+ * share that one action, so neither can drift from the other.
  *
  * Router-free markup (plain `<a>`, plain `<form method="post">`, `<details>`):
  * the page works pre-hydration, and the default export renders under
@@ -33,13 +38,20 @@ import { chunkForBind, getDb } from "~/db/client.server";
 import { rooms as roomsTable, sessions } from "~/db/schema";
 import { requireAdmin } from "~/lib/auth/auth.server";
 import { planAutoPlacement } from "~/lib/agenda/autoplace";
-import { conflictLabel } from "~/lib/agenda/conflicts";
+import {
+  advisoryConflicts,
+  blockingConflicts,
+  conflictLabel,
+  severityOf,
+} from "~/lib/agenda/conflicts";
+import type { Conflict, ConflictKind, ConflictSeverity } from "~/lib/agenda/conflicts";
 import {
   abstractIdsForSessions,
   isSessionInformed,
   partitionByInformed,
 } from "~/lib/agenda/informed-gate.server";
 import { conflictsInvolving, loadProgramme } from "~/lib/agenda/programme.server";
+import { predictConflicts } from "~/lib/agenda/predict";
 import { notifyScheduleChange } from "~/lib/comms/schedule-invite.server";
 import {
   DEFAULT_DURATION_MINUTES,
@@ -107,11 +119,12 @@ export interface AgendaRow {
   capacity: number | null;
   isPublic: boolean;
   speakers: string[];
-  conflicts: { kind: string; label: string }[];
+  conflicts: { kind: ConflictKind; label: string }[];
 }
 
 export interface ConflictRow {
-  kind: string;
+  kind: ConflictKind;
+  severity: ConflictSeverity;
   label: string;
   resourceName: string;
   aId: string;
@@ -142,6 +155,24 @@ export interface AgendaData {
   notice: string | null;
   warning: string | null;
   heldForUninformed: { id: string; title: string }[];
+  publishHolds: { id: string; title: string; reasons: string[] }[];
+}
+
+const UNINFORMED_REASON = "Speaker not yet informed";
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function releaseConflictReasons(conflicts: Conflict[], sessionId: string): string[] {
+  return unique(
+    blockingConflicts(conflictsInvolving(conflicts, sessionId)).map(conflictLabel),
+  );
+}
+
+function placementConflictReason(conflict: Conflict, sessionId: string): string {
+  const other = conflict.a.id === sessionId ? conflict.b : conflict.a;
+  return `${conflictLabel(conflict)} (overlaps “${other.title}”, ${conflict.overlapMinutes} min)`;
 }
 
 export function agendaUrl(view: AgendaView, day: string | null, extra = ""): string {
@@ -176,6 +207,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<AgendaData>
       notice: null,
       warning: null,
       heldForUninformed: [],
+      publishHolds: [],
     };
   }
 
@@ -190,7 +222,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<AgendaData>
   );
   const day = isDayKey(dayParam) && days.includes(dayParam) ? dayParam : (days[0] ?? null);
 
-  const conflictsById = new Map<string, { kind: string; label: string }[]>();
+  const conflictsById = new Map<string, { kind: ConflictKind; label: string }[]>();
   for (const conflict of programme.conflicts) {
     for (const id of [conflict.a.id, conflict.b.id]) {
       const list = conflictsById.get(id) ?? [];
@@ -224,6 +256,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<AgendaData>
 
   const conflictRows: ConflictRow[] = programme.conflicts.map((conflict) => ({
     kind: conflict.kind,
+    severity: severityOf(conflict),
     label: conflictLabel(conflict),
     resourceName: conflict.resourceName,
     aId: conflict.a.id,
@@ -248,6 +281,13 @@ export async function loader({ request }: Route.LoaderArgs): Promise<AgendaData>
   const heldForUninformed = pendingRows
     .filter((row) => heldSet.has(row.id))
     .map((row) => ({ id: row.id, title: row.title }));
+  const publishHolds = pendingRows.flatMap((row) => {
+    const reasons = [
+      ...(heldSet.has(row.id) ? [UNINFORMED_REASON] : []),
+      ...releaseConflictReasons(programme.conflicts, row.id),
+    ];
+    return reasons.length > 0 ? [{ id: row.id, title: row.title, reasons }] : [];
+  });
 
   const moved = url.searchParams.get("moved");
   const publishedParam = url.searchParams.get("published");
@@ -295,8 +335,11 @@ export async function loader({ request }: Route.LoaderArgs): Promise<AgendaData>
       conflicts: conflictRows.length,
     },
     notice,
-    warning: url.searchParams.get("warn") === "conflict" ? "conflict" : null,
+    warning: ["conflict", "forced"].includes(url.searchParams.get("warn") ?? "")
+      ? url.searchParams.get("warn")
+      : null,
     heldForUninformed,
+    publishHolds,
   };
 }
 
@@ -418,12 +461,57 @@ export async function action({ request }: Route.ActionArgs) {
       return { ok: false as const, error: "Could not resolve that day and time." };
     }
 
+    const endsAt = startsAt + minutes * 60_000;
+    const programme = await loadProgramme(event.id);
+    const predicted = predictConflicts(programme.sessions, {
+      sessionId,
+      roomId,
+      startsAt,
+      endsAt,
+      // The TARGET room's name, so a predicted clash is reported against the room
+      // the session is moving into rather than the one it is leaving.
+      roomName: programme.rooms.find((room) => room.id === roomId)?.name ?? null,
+    });
+    const blocking = blockingConflicts(predicted);
+    const advisory = advisoryConflicts(predicted);
+    const blockingReasons = blocking.map((conflict) =>
+      placementConflictReason(conflict, sessionId),
+    );
+    const advisoryReasons = advisory.map((conflict) =>
+      placementConflictReason(conflict, sessionId),
+    );
+
+    if (String(formData.get("dryRun") ?? "") === "1") {
+      return {
+        ok: true as const,
+        prediction: { blocking: blockingReasons, advisory: advisoryReasons },
+      };
+    }
+
+    const force = String(formData.get("force") ?? "") === "1";
+    if (blocking.length > 0 && !force) {
+      return {
+        ok: false as const,
+        error: `Blocked: ${blockingReasons.join(", ")}. Move it somewhere else, or move it anyway.`,
+        blocked: {
+          sessionId,
+          roomId,
+          day,
+          time,
+          durationMinutes: minutes,
+          view,
+          returnDay,
+          reasons: blockingReasons,
+        },
+      };
+    }
+
     await db
       .update(sessions)
       .set({
         roomId,
         startsAt: new Date(startsAt),
-        endsAt: new Date(startsAt + minutes * 60_000),
+        endsAt: new Date(endsAt),
         updatedAt: new Date(),
       })
       .where(eq(sessions.id, sessionId));
@@ -438,14 +526,22 @@ export async function action({ request }: Route.ActionArgs) {
       before: { startsAt: target.startsAt, endsAt: target.endsAt, isPublic: target.isPublic },
     });
 
-    // Warn, never block (DECISIONS.md #13). Recomputed AFTER the write so the
-    // warning describes the agenda the admin is about to look at.
-    const after = await loadProgramme(event.id);
-    const clashes = conflictsInvolving(after.conflicts, sessionId);
-
     const params = new URLSearchParams();
     params.set("moved", target.title);
-    if (clashes.length) params.set("warn", "conflict");
+    /*
+     * ONE warn value, and it names what actually happened. A forced move and an
+     * advisory move are different events for the organizer — the first put a
+     * physically impossible placement on the board, the second did not — so they
+     * get different banners. An earlier draft emitted `warn=forced&warn=conflict`
+     * together so that a pre-existing `toContain("warn=conflict")` assertion kept
+     * passing; that made the URL claim both things at once to satisfy a test
+     * rather than to describe the write.
+     */
+    if (blocking.length > 0 && force) {
+      params.set("warn", "forced");
+    } else if (advisory.length > 0) {
+      params.set("warn", "conflict");
+    }
     return redirect(agendaUrl(view, returnDay ?? day, `&${params.toString()}`));
   }
 
@@ -488,16 +584,33 @@ export async function action({ request }: Route.ActionArgs) {
 
     const published = String(formData.get("published") ?? "") === "1";
     const override = String(formData.get("override") ?? "") === "1";
+    const force = String(formData.get("force") ?? "") === "1";
     if (published && !target.startsAt) {
       return {
         ok: false as const,
         error: "Give the session a time before publishing it to the public schedule.",
       };
     }
+    const programme = published ? await loadProgramme(event.id) : null;
+    const currentConflicts = programme
+      ? conflictsInvolving(programme.conflicts, sessionId)
+      : [];
+    const gateReasons: string[] = [];
     if (published && !override && !(await isSessionInformed(db, sessionId))) {
+      gateReasons.push(UNINFORMED_REASON);
+    }
+    if (published && !force) {
+      gateReasons.push(...releaseConflictReasons(currentConflicts, sessionId));
+    }
+    if (gateReasons.length > 0) {
+      const namedReasons = gateReasons.map((reason) =>
+        reason === UNINFORMED_REASON
+          ? `${reason} (the speaker hasn't been told)`
+          : reason,
+      );
       return {
         ok: false as const,
-        error: "Held: the speaker hasn't been told yet. Send the decision letter, or publish anyway.",
+        error: `Held: ${namedReasons.join("; ")}. Resolve the hold, or publish anyway with the required override.`,
       };
     }
 
@@ -520,10 +633,15 @@ export async function action({ request }: Route.ActionArgs) {
       before: { startsAt: target.startsAt, endsAt: target.endsAt, isPublic: target.isPublic },
     });
 
-    return redirect(agendaUrl(view, returnDay));
+    const params = new URLSearchParams();
+    if (published && currentConflicts.length > 0) params.set("warn", "conflict");
+    return redirect(
+      agendaUrl(view, returnDay, params.size > 0 ? `&${params.toString()}` : ""),
+    );
   }
 
   if (intent === "publish-all") {
+    const force = String(formData.get("force") ?? "") === "1";
     const pending = await db
       .select({ id: sessions.id })
       .from(sessions)
@@ -541,10 +659,21 @@ export async function action({ request }: Route.ActionArgs) {
       db,
       pending.map((row) => row.id),
     );
+    const programme = await loadProgramme(event.id);
+    const pendingIds = new Set(pending.map((row) => row.id));
+    const blockingIds = new Set<string>();
+    for (const conflict of blockingConflicts(programme.conflicts)) {
+      if (pendingIds.has(conflict.a.id)) blockingIds.add(conflict.a.id);
+      if (pendingIds.has(conflict.b.id)) blockingIds.add(conflict.b.id);
+    }
+    const publishableIds = partition.informed.filter(
+      (sessionId) => force || !blockingIds.has(sessionId),
+    );
+    const blockedCount = force ? 0 : blockingIds.size;
 
-    if (partition.informed.length > 0) {
+    if (publishableIds.length > 0) {
       const now = new Date();
-      for (const chunk of chunkForBind(partition.informed, 1)) {
+      for (const chunk of chunkForBind(publishableIds, 1)) {
         await db
           .update(sessions)
           .set({ isPublic: true, publishedAt: now, updatedAt: now })
@@ -555,7 +684,7 @@ export async function action({ request }: Route.ActionArgs) {
       // went public without its speaker being told is the divergence this whole
       // lane exists to prevent. Each send is individually guarded, and a session
       // whose speakers already hold an invite gets an update, not a duplicate.
-      for (const sessionId of partition.informed) {
+      for (const sessionId of publishableIds) {
         await notifyScheduleChange({
           request,
           event,
@@ -566,19 +695,13 @@ export async function action({ request }: Route.ActionArgs) {
       }
     }
 
-    // Warn, never block (DECISIONS.md #13) — the SAME recompute the move path
-    // runs above, widened to the set this action just published. Publishing is
-    // the one moment a double-booked room reaches the public schedule and the
-    // ICS invites, so it is the last place a conflict may pass silently.
-    // This runs AFTER the write and changes nothing about what gets published:
-    // whether publish should *gate* on conflicts is a separate, open question.
     const params = new URLSearchParams();
-    params.set("published", String(partition.informed.length));
+    params.set("published", String(publishableIds.length));
     params.set("held", String(partition.held.length));
-    if (partition.informed.length > 0) {
-      const after = await loadProgramme(event.id);
-      const clashed = partition.informed.some(
-        (sessionId) => conflictsInvolving(after.conflicts, sessionId).length > 0,
+    params.set("blocked", String(blockedCount));
+    if (publishableIds.length > 0) {
+      const clashed = publishableIds.some(
+        (sessionId) => conflictsInvolving(programme.conflicts, sessionId).length > 0,
       );
       if (clashed) params.set("warn", "conflict");
     }
@@ -1167,54 +1290,96 @@ function ConflictsView({ data }: { data: AgendaData }) {
     );
   }
 
+  const labels: Record<ConflictKind, string> = {
+    room: "Room",
+    speaker: "Speaker",
+    track: "Track",
+  };
+  const sections: {
+    severity: ConflictSeverity;
+    heading: string;
+    explanation: string;
+  }[] = [
+    {
+      severity: "blocking",
+      heading: "Blocking conflicts",
+      explanation: "A room or person is double-booked, so publishing is held until it is fixed or explicitly forced.",
+    },
+    {
+      severity: "advisory",
+      heading: "Advisory conflicts",
+      explanation: "A track overlaps. Publishing stays available, but attendees interested in that track must choose.",
+    },
+  ];
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-gray-200 text-left dark:border-gray-800">
-            <th className="p-2">Conflict</th>
-            <th className="p-2">When</th>
-            <th className="p-2">Session</th>
-            <th className="p-2">Session</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.conflictRows.map((row, index) => (
-            <tr
-              key={`${row.kind}-${row.aId}-${row.bId}-${index}`}
-              data-conflict-row={`${row.aId}|${row.bId}`}
-              className="border-b border-gray-100 align-top dark:border-gray-900"
-            >
-              <td className="p-2">
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-900 dark:text-amber-100">
-                  ⚠ {row.kind === "room" ? "Room" : "Speaker"}
-                </span>
-                <span className="ml-2">{row.resourceName}</span>
-              </td>
-              <td className="p-2 text-gray-600 dark:text-gray-300">
-                {row.windowLabel}
-                <span className="block text-xs text-gray-500">
-                  {row.overlapMinutes} min overlap
-                </span>
-              </td>
-              <td className="p-2">
-                <a className={linkClass} href={`${agendaUrl("list", null)}#session-${row.aId}`}>
-                  {row.aTitle}
-                </a>
-              </td>
-              <td className="p-2">
-                <a className={linkClass} href={`${agendaUrl("list", null)}#session-${row.bId}`}>
-                  {row.bTitle}
-                </a>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="mt-3 text-xs text-gray-500">
-        Conflicts do not block scheduling — an organiser routinely parks a clash and fixes
-        it later. Open either session to move it.
-      </p>
+    <div className="space-y-6">
+      {sections.map((section) => {
+        const rows = data.conflictRows.filter(
+          (row) => row.severity === section.severity,
+        );
+        return (
+          <section key={section.severity} aria-labelledby={`${section.severity}-conflicts`}>
+            <h2 id={`${section.severity}-conflicts`} className="font-semibold">
+              {section.heading}
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              {section.explanation}
+            </p>
+            {rows.length === 0 ? (
+              <p className="mt-3 rounded border border-gray-200 p-3 text-sm text-gray-500 dark:border-gray-800">
+                No {section.severity} conflicts.
+              </p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-left dark:border-gray-800">
+                      <th className="p-2">Conflict</th>
+                      <th className="p-2">When</th>
+                      <th className="p-2">Session</th>
+                      <th className="p-2">Session</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, index) => (
+                      <tr
+                        key={`${row.kind}-${row.aId}-${row.bId}-${index}`}
+                        data-conflict-row={`${row.aId}|${row.bId}`}
+                        data-conflict-severity={row.severity}
+                        className="border-b border-gray-100 align-top dark:border-gray-900"
+                      >
+                        <td className="p-2">
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-900 dark:text-amber-100">
+                            ⚠ {labels[row.kind]}
+                          </span>
+                          <span className="ml-2">{row.resourceName}</span>
+                        </td>
+                        <td className="p-2 text-gray-600 dark:text-gray-300">
+                          {row.windowLabel}
+                          <span className="block text-xs text-gray-500">
+                            {row.overlapMinutes} min overlap
+                          </span>
+                        </td>
+                        <td className="p-2">
+                          <a className={linkClass} href={`${agendaUrl("list", null)}#session-${row.aId}`}>
+                            {row.aTitle}
+                          </a>
+                        </td>
+                        <td className="p-2">
+                          <a className={linkClass} href={`${agendaUrl("list", null)}#session-${row.bId}`}>
+                            {row.bTitle}
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -1236,6 +1401,7 @@ export function AgendaScreen(data: AgendaData) {
   }
 
   const heldForUninformed = data.heldForUninformed ?? [];
+  const publishHolds = data.publishHolds ?? [];
 
   return (
     <div>
@@ -1353,23 +1519,33 @@ export function AgendaScreen(data: AgendaData) {
           {data.notice}
         </p>
       ) : null}
-      {heldForUninformed.length > 0 ? (
+      {publishHolds.length > 0 ? (
         <section className="mb-3 rounded border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
           <p className="font-medium">
-            These scheduled sessions are held until their speakers are informed:
+            These scheduled sessions are held from the public schedule:
           </p>
           <ul className="mt-2 space-y-2">
-            {heldForUninformed.map((session) => (
+            {publishHolds.map((session) => (
               <li
                 key={session.id}
                 className="flex flex-wrap items-center justify-between gap-2"
               >
-                <span>{session.title}</span>
+                <span>
+                  {session.title}
+                  <span className="block text-xs">
+                    {session.reasons.join("; ")}
+                  </span>
+                </span>
                 <form method="post">
                   <input type="hidden" name="intent" value="set-published" />
                   <input type="hidden" name="sessionId" value={session.id} />
                   <input type="hidden" name="published" value="1" />
-                  <input type="hidden" name="override" value="1" />
+                  {session.reasons.includes(UNINFORMED_REASON) ? (
+                    <input type="hidden" name="override" value="1" />
+                  ) : null}
+                  {session.reasons.some((reason) => reason !== UNINFORMED_REASON) ? (
+                    <input type="hidden" name="force" value="1" />
+                  ) : null}
                   <input type="hidden" name="view" value={data.view} />
                   <input type="hidden" name="returnDay" value={data.day ?? ""} />
                   <button type="submit" className={GHOST}>
@@ -1379,14 +1555,16 @@ export function AgendaScreen(data: AgendaData) {
               </li>
             ))}
           </ul>
-          <form method="post" className="mt-3">
-            <input type="hidden" name="intent" value="send-decision-letters" />
-            <input type="hidden" name="view" value={data.view} />
-            <input type="hidden" name="returnDay" value={data.day ?? ""} />
-            <button type="submit" className={BUTTON}>
-              Send decision letters now
-            </button>
-          </form>
+          {heldForUninformed.length > 0 ? (
+            <form method="post" className="mt-3">
+              <input type="hidden" name="intent" value="send-decision-letters" />
+              <input type="hidden" name="view" value={data.view} />
+              <input type="hidden" name="returnDay" value={data.day ?? ""} />
+              <button type="submit" className={BUTTON}>
+                Send decision letters now
+              </button>
+            </form>
+          ) : null}
         </section>
       ) : null}
       {data.warning === "conflict" ? (
@@ -1397,6 +1575,18 @@ export function AgendaScreen(data: AgendaData) {
           ⚠ That placement conflicts with another session. It was saved anyway —{" "}
           <a className={linkClass} href={agendaUrl("conflicts", null)}>
             review it on the Conflicts screen
+          </a>
+          .
+        </p>
+      ) : null}
+      {data.warning === "forced" ? (
+        <p
+          data-conflict-warning="forced"
+          className="mb-3 rounded border border-red-400 bg-red-50 p-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-200"
+        >
+          ⚠ That physically impossible placement was forced. Review it on the{" "}
+          <a className={linkClass} href={agendaUrl("conflicts", null)}>
+            Conflicts screen
           </a>
           .
         </p>
@@ -1427,13 +1617,53 @@ export function AgendaScreen(data: AgendaData) {
 }
 
 export default function AdminAgenda({ loaderData, actionData }: Route.ComponentProps) {
-  const error = (actionData as { ok?: boolean; error?: string } | undefined)?.error;
+  const result = actionData as
+    | {
+        ok?: boolean;
+        error?: string;
+        blocked?: {
+          sessionId: string;
+          roomId: string | null;
+          day: string;
+          time: string;
+          durationMinutes: number;
+          view: AgendaView;
+          returnDay: string | null;
+          reasons: string[];
+        };
+      }
+    | undefined;
+  const error = result?.error;
   return (
     <>
       {error ? (
-        <p className="mb-3 rounded border border-red-400 bg-red-50 p-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
-          {error}
-        </p>
+        <section className="mb-3 rounded border border-red-400 bg-red-50 p-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+          <p>{error}</p>
+          {result?.blocked ? (
+            <form method="post" className="mt-2">
+              <input type="hidden" name="intent" value="schedule" />
+              <input type="hidden" name="sessionId" value={result.blocked.sessionId} />
+              <input type="hidden" name="roomId" value={result.blocked.roomId ?? ""} />
+              <input type="hidden" name="day" value={result.blocked.day} />
+              <input type="hidden" name="time" value={result.blocked.time} />
+              <input
+                type="hidden"
+                name="durationMinutes"
+                value={result.blocked.durationMinutes}
+              />
+              <input type="hidden" name="view" value={result.blocked.view} />
+              <input
+                type="hidden"
+                name="returnDay"
+                value={result.blocked.returnDay ?? ""}
+              />
+              <input type="hidden" name="force" value="1" />
+              <button type="submit" className={GHOST}>
+                Move anyway
+              </button>
+            </form>
+          ) : null}
+        </section>
       ) : null}
       <AgendaScreen {...loaderData} />
     </>

@@ -1,9 +1,10 @@
 /**
  * Agenda conflict detection — pure functions, no I/O, no DB types.
  *
- * Two things can be double-booked on a conference programme:
+ * Three things can overlap on a conference programme:
  *   1. a ROOM  — two sessions in the same room whose times overlap;
  *   2. a PERSON — one speaker (or chair/moderator/panelist) in two sessions at once.
+ *   3. a TRACK — two sessions in the same programme track whose times overlap.
  *
  * Intervals are HALF-OPEN: `[startsAt, endsAt)`. A 10:00–11:00 talk and an
  * 11:00–12:00 talk in the same room do NOT conflict — back-to-back scheduling is
@@ -14,8 +15,10 @@
  * special cases: "same room, different day" simply doesn't overlap, and a session
  * that runs across midnight is one interval like any other.
  *
- * DECISIONS.md #13: Conflicts is a first-class view, and scheduling INTO a
- * conflict is allowed but warned — so this module REPORTS, it never blocks.
+ * DECISIONS.md #13 and #70 split the consequences without splitting detection:
+ * room/person double-booking is a physical impossibility and is blocking;
+ * track overlap is a programme-quality judgment and stays advisory forever.
+ * This pure module reports both classes; callers decide whether to refuse or warn.
  */
 
 /** A programme record as the agenda sees it. `null` times = not yet scheduled. */
@@ -27,6 +30,8 @@ export interface AgendaEntry {
   endsAt: number | null;
   roomId: string | null;
   roomName?: string | null;
+  trackId?: string | null;
+  trackName?: string | null;
   /** Flat participants model (DECISIONS.md #20) — every role can double-book. */
   participants?: { id: string; name: string }[];
 }
@@ -37,7 +42,14 @@ export interface ScheduledEntry extends AgendaEntry {
   endsAt: number;
 }
 
-export type ConflictKind = "room" | "speaker";
+export type ConflictKind = "room" | "speaker" | "track";
+export type ConflictSeverity = "blocking" | "advisory";
+
+export const CONFLICT_SEVERITY: Record<ConflictKind, ConflictSeverity> = {
+  room: "blocking",
+  speaker: "blocking",
+  track: "advisory",
+};
 
 export interface ConflictSide {
   id: string;
@@ -206,6 +218,22 @@ export function findSpeakerConflicts(entries: AgendaEntry[]): Conflict[] {
   return found;
 }
 
+/** Two sessions in the SAME programme track whose times overlap. */
+export function findTrackConflicts(entries: AgendaEntry[]): Conflict[] {
+  const scheduled = entries.filter(isScheduled);
+  const groups = bucket(scheduled, (entry) =>
+    entry.trackId
+      ? [{ key: entry.trackId, label: entry.trackName ?? "Track" }]
+      : /* No track is not a shared resource. */ [],
+  );
+
+  const found: Conflict[] = [];
+  for (const [trackId, group] of groups) {
+    found.push(...pairsIn("track", trackId, group.label, group.entries));
+  }
+  return found;
+}
+
 /**
  * Every conflict on the programme, sorted by when the clash starts.
  *
@@ -215,7 +243,11 @@ export function findSpeakerConflicts(entries: AgendaEntry[]): Conflict[] {
  * likewise yield one row each, named per person.
  */
 export function findConflicts(entries: AgendaEntry[]): Conflict[] {
-  return [...findRoomConflicts(entries), ...findSpeakerConflicts(entries)].sort(
+  return [
+    ...findRoomConflicts(entries),
+    ...findSpeakerConflicts(entries),
+    ...findTrackConflicts(entries),
+  ].sort(
     (x, y) =>
       x.overlapStart - y.overlapStart ||
       (x.kind < y.kind ? -1 : x.kind > y.kind ? 1 : 0) ||
@@ -247,9 +279,28 @@ export function conflictedSessionIds(conflicts: Conflict[]): Set<string> {
   return ids;
 }
 
-/** "Room · Main Stage" / "Speaker · Sam Speaker" — the Conflicts row label. */
+export function severityOf(conflict: Conflict): ConflictSeverity {
+  return CONFLICT_SEVERITY[conflict.kind];
+}
+
+export function isBlocking(conflict: Conflict): boolean {
+  return severityOf(conflict) === "blocking";
+}
+
+export function blockingConflicts(conflicts: Conflict[]): Conflict[] {
+  return conflicts.filter(isBlocking);
+}
+
+export function advisoryConflicts(conflicts: Conflict[]): Conflict[] {
+  return conflicts.filter((conflict) => severityOf(conflict) === "advisory");
+}
+
+/** Human-readable resource label for a conflict row or release hold. */
 export function conflictLabel(conflict: Conflict): string {
-  return conflict.kind === "room"
-    ? `Room double-booked · ${conflict.resourceName}`
-    : `Speaker double-booked · ${conflict.resourceName}`;
+  const labels: Record<ConflictKind, (resourceName: string) => string> = {
+    room: (resourceName) => `Room double-booked · ${resourceName}`,
+    speaker: (resourceName) => `Speaker double-booked · ${resourceName}`,
+    track: (resourceName) => `Track overlap · ${resourceName}`,
+  };
+  return labels[conflict.kind](conflict.resourceName);
 }

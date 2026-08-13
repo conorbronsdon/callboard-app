@@ -58,7 +58,7 @@ Suggested walkthrough:
 | Review operations | Standalone assigned-only reviewer workspace, organizer “view as reviewer,” two-round weighted scoring, reviewer aggregates and completion progress, reviewer provisioning by email with an additive capability flag, team management, round/rubric setup (add/remove criterion rows, numeric or dropdown types, lock on first submitted score), per-round blinding, reviewer conflict-of-interest recusal, reviewer reminders, and both batch assignment and direct per-reviewer assignment |
 | Score reporting | Aggregate-score sorting in the submissions list, plus a reviewer score CSV export at `/admin/submissions/scores.csv` carrying per-round aggregates and one column per rubric criterion, including dropdown-answer distributions |
 | AI first-pass triage | Advisory Workers AI triage on an abstract's detail page: a score, a queue recommendation, and a short rationale carrying the model label. It never writes a review, never changes a submission's status, and degrades to a visible "unavailable in this deployment" when no `AI` binding is present |
-| Speaker CRM | Organization-level contact directory spanning every event, with contact profiles, notes, tags, travel notes, CSV import (preview then commit), duplicate detection and merge, add-to-event, bulk email to a filtered selection, rollups for total contacts/events/returning contacts/top companies, savable named filter segments, and a sourcing pipeline (a kanban board over five fixed stages; each card moves by picking a stage and submitting, not by dragging) with a move-audit trail |
+| Speaker CRM | Organization-level contact directory spanning every event, with contact profiles, notes, tags, travel notes, CSV import (preview then commit), duplicate detection and merge, add-to-event, bulk email to a filtered selection, rollups for total contacts/events/returning contacts/top companies, savable named filter segments, and a sourcing pipeline (a kanban board over five fixed stages; each card moves either by dragging or by picking a stage and submitting) with a move-audit trail |
 | Files library | Organizer-side browser of every upload for an event, grouped into version chains (newest deliverable first), with per-file comments and a bulk ZIP download |
 | Multi-event | Multiple events per deployment, an admin event switcher that scopes every organizer screen, and in-app event creation |
 | Public & embeddable widgets | Public event page, schedule with search/day tabs/track-format-room facets and clickable speaker names, session detail, speaker directory/profiles/gallery with consent-gated headshots (monogram fallback when a speaker has not opted in), a unified “Show more” control, browser-local “My schedule” itinerary, and an `.ics` feed. An organizer embed builder generates four chrome-less widgets (schedule, agenda by day, speakers, speaker gallery) with theme, density, accent, and track options, emitted as an iframe snippet, a plain link, or a calendar feed. Saved embeds get a stable `?embed=<id>` URL and can be enabled, disabled, or deleted |
@@ -73,10 +73,10 @@ Suggested walkthrough:
 
 ## Limitations
 
-Known open gaps, verified against `main` at `fb76402`. Each one names the file
+Known open gaps, verified against `main` at `2ebf55e`. Each one names the file
 or command that shows it, so it can be rechecked rather than taken on trust.
 
-Volatile counts at `fb76402`, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **15** migrations;
+Volatile counts at `2ebf55e`, one reproducing command each: `ls app/db/migrations/*.sql | wc -l` → **15** migrations;
 `grep -c 'sqliteTable(' app/db/schema.ts` → **37** tables;
 `grep -oE 'insert\("[a-z_]+"' scripts/seed.mjs | sort -u | wc -l` → **29** seeded
 tables; `npx vitest list --run | wc -l` → **2269** tests.
@@ -98,14 +98,14 @@ surface degrades to a visible “unavailable in this deployment.” The agenda's
 reorder, or add one; submissions are worked from filtered list views and a
 drill-in rather than a status board.
 
-**The CRM sourcing pipeline's stages are fixed, and it is not drag-and-drop.**
+**The CRM sourcing pipeline's stages are fixed.**
 The kanban at `/admin/pipeline` lays contacts out in five hard-coded stage
 columns (`PIPELINE_STAGES` in `app/db/schema.ts`: `prospect`, `contacted`,
-`in_conversation`, `confirmed`, `declined`) and records every move, but a card
-is moved with a per-card stage `select` and a **Move** button — the drag-and-drop
-layer exists only on the agenda day board. There is also no stage-management UI
-to add, rename, reorder, or remove a stage: the ordering is product workflow,
-not organizer configuration.
+`in_conversation`, `confirmed`, `declined`). A card can be moved by dragging it
+between columns or with its stage `select` and **Move** button; both submit the
+same audited move action. There is still no stage-management UI to add, rename,
+reorder, or remove a stage: the ordering is product workflow, not organizer
+configuration.
 
 **The bulk file ZIP is capped at 30 MB.** The Files library at `/admin/files`
 lists every upload for an event grouped into version chains with per-file
@@ -198,7 +198,7 @@ that proves or disproves it. Repository commands run from a clean checkout after
 | Claim | How to check it |
 |---|---|
 | The migration, table, and seeded-table counts are real | Run the three commands stamped at the top of [Limitations](#limitations); each prints the number quoted beside it |
-| The test suite is the size claimed | `npx vitest list --run \| wc -l`. Limitations stamps this count at `fb76402`; later commits report a larger number, which is why the stamp names a SHA |
+| The test suite is the size claimed | `npx vitest list --run \| wc -l`. Limitations stamps this count at `2ebf55e`; later commits report a larger number, which is why the stamp names a SHA |
 | The whole gate passes three consecutive isolated times | `npm run release:verify:repeat` — writes one attempt per pass to `artifacts/release-gate/<sha>/manifest.json` and only sets `"result": "passed"` after three |
 | CI runs that same gate, not a lighter one | [`.github/workflows/check.yml`](.github/workflows/check.yml) and [`.github/workflows/repeat-release-gate.yml`](.github/workflows/repeat-release-gate.yml) |
 | Calendar invites actually land in a real calendar | `app/lib/comms/ics.ts:5` records the end-to-end verification against Gmail on 2026-08-08: native RSVP card, event auto-staged, conflict detection ran |

@@ -291,8 +291,13 @@ describe("action: schedule (the JS-off round-trip and the drop target)", () => {
   });
 });
 
-describe("action: scheduling INTO a conflict is allowed but warned", () => {
-  /** Park session B on top of session A: same room, same half hour. */
+describe("action: a blocking placement is refused; forcing it warns (DECISIONS #70)", () => {
+  /**
+   * Park session B on top of session A: same room, same half hour.
+   *
+   * This is a ROOM double-booking, which #70 classes as blocking, so the move
+   * only lands with `force`. The unforced case is the test directly below.
+   */
   async function createOverlap() {
     return (await post({
       intent: "schedule",
@@ -303,20 +308,87 @@ describe("action: scheduling INTO a conflict is allowed but warned", () => {
       durationMinutes: "30",
       view: "day",
       returnDay: DAY_ONE,
+      force: "1",
     })) as Response;
   }
 
-  it("MUST FIRE: the write succeeds and the redirect carries warn=conflict", async () => {
+  it("MUST FIRE: an UNFORCED move into an occupied room is refused and nothing moves", async () => {
+    const before = await ctx.db.query.sessions.findFirst({
+      where: eq(sessions.id, fixture.programSessionIds[1]),
+    });
+
+    const result = (await post({
+      intent: "schedule",
+      sessionId: fixture.programSessionIds[1],
+      roomId: fixture.roomIds[0],
+      day: DAY_ONE,
+      time: "15:00",
+      durationMinutes: "30",
+      view: "day",
+      returnDay: DAY_ONE,
+    })) as { ok: false; error: string; blocked: { reasons: string[] } };
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Room double-booked · Main Stage");
+    expect(result.blocked.reasons.join(" ")).toContain("Main Stage");
+
+    // The refusal is real: the row is byte-for-byte where it started.
+    const after = await ctx.db.query.sessions.findFirst({
+      where: eq(sessions.id, fixture.programSessionIds[1]),
+    });
+    expect(after?.roomId).toBe(before?.roomId);
+    expect(after?.startsAt?.toISOString()).toBe(before?.startsAt?.toISOString());
+  });
+
+  it("MUST NOT FIRE: the same move with force=1 succeeds and says it was FORCED", async () => {
     const response = await createOverlap();
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toContain("warn=conflict");
+    const location = response.headers.get("location") ?? "";
+    // One honest value: this placement is impossible, not merely untidy.
+    expect(location).toContain("warn=forced");
+    expect(location).not.toContain("warn=conflict");
 
-    // The move was SAVED — warning, not blocking.
+    // The move was SAVED — forced, not refused.
     const row = await ctx.db.query.sessions.findFirst({
       where: eq(sessions.id, fixture.programSessionIds[1]),
     });
     expect(row?.roomId).toBe(fixture.roomIds[0]);
+    expect(row?.startsAt?.toISOString()).toBe("2026-10-07T22:00:00.000Z");
+  });
+
+  it("MUST NOT FIRE: an ADVISORY same-track clash applies with warn=conflict, never blocked", async () => {
+    /*
+     * The warn-never-block law of #13 survives #70 intact for advisory kinds.
+     * Same TRACK as programme session 0, but a different room and a different
+     * person — so nothing is physically double-booked and the move must land
+     * with no force, carrying the ordinary conflict warning.
+     */
+    const target = await addUnscheduled("Parallel track talk");
+    await ctx.db
+      .update(sessions)
+      .set({ trackId: fixture.trackIds[0] }) // same track as programme session 0
+      .where(eq(sessions.id, target));
+
+    const response = (await post({
+      intent: "schedule",
+      sessionId: target,
+      roomId: fixture.roomIds[1], // a DIFFERENT room
+      day: DAY_ONE,
+      time: "15:00", // same time as session 0
+      durationMinutes: "30",
+      view: "day",
+      returnDay: DAY_ONE,
+    })) as Response;
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get("location") ?? "";
+    expect(location).toContain("warn=conflict");
+    expect(location).not.toContain("warn=forced");
+
+    // Applied, with no override of any kind.
+    const row = await ctx.db.query.sessions.findFirst({ where: eq(sessions.id, target) });
+    expect(row?.roomId).toBe(fixture.roomIds[1]);
     expect(row?.startsAt?.toISOString()).toBe("2026-10-07T22:00:00.000Z");
   });
 
@@ -367,6 +439,10 @@ describe("action: scheduling INTO a conflict is allowed but warned", () => {
   it("detects a SPEAKER double-booking across different rooms", async () => {
     // Put session 1's speaker on session 0 as well, then overlap them.
     const target = await addUnscheduled("Fireside with Sam");
+    await ctx.db
+      .update(sessions)
+      .set({ trackId: fixture.trackIds[1] })
+      .where(eq(sessions.id, target));
     await ctx.db.insert(
       (await import("~/db/schema")).sessionParticipants,
     ).values({
@@ -385,8 +461,9 @@ describe("action: scheduling INTO a conflict is allowed but warned", () => {
       time: "15:00", // same time as session 0
       durationMinutes: "30",
       view: "conflicts",
+      force: "1", // a speaker double-booking is blocking, so it needs forcing
     })) as Response;
-    expect(response.headers.get("location")).toContain("warn=conflict");
+    expect(response.headers.get("location")).toContain("warn=forced");
 
     const data = await load(`${BASE}?view=conflicts`);
     expect(data.conflictRows).toHaveLength(1);
@@ -509,7 +586,30 @@ describe("action: publish-all conflict warning", () => {
     }
   }
 
-  it("MUST FIRE: a room double-booking makes publish-all redirect with warn=conflict", async () => {
+  /** Same track, DIFFERENT rooms, overlapping times: advisory, never blocking. */
+  async function draftTrackOverlap(): Promise<void> {
+    for (const [index, id] of fixture.programSessionIds.entries()) {
+      await ctx.db
+        .update(sessions)
+        .set({
+          roomId: fixture.roomIds[index], // different rooms — no room double-booking
+          trackId: fixture.trackIds[0], // the SAME track
+          startsAt: new Date("2026-10-08T17:00:00.000Z"),
+          endsAt: new Date("2026-10-08T18:00:00.000Z"),
+          isPublic: false,
+          publishedAt: null,
+        })
+        .where(eq(sessions.id, id));
+    }
+  }
+
+  it("MUST FIRE: a room double-booking HOLDS both sessions instead of publishing them", async () => {
+    /*
+     * This replaces the pre-#70 law, which published a double-booked room and
+     * merely warned. Publishing is the moment a conflict reaches the public
+     * schedule and the ICS invites, and a room cannot host two sessions at once,
+     * so the release gate refuses rather than warns.
+     */
     await draftRoomOverlap();
     expect((await load()).counts.conflicts).toBe(1);
 
@@ -517,11 +617,59 @@ describe("action: publish-all conflict warning", () => {
     const location = String(response.headers.get("location"));
 
     expect(response.status).toBe(302);
-    expect(location).toContain("warn=conflict");
-    // …and the count is still reported, so the warning does not replace it.
-    expect(location).toContain("published=2");
+    expect(location).toContain("published=0");
+    expect(location).toContain("blocked=2");
 
-    // Warning, NOT a gate — the conflicting sessions went public anyway.
+    // A gate, not a warning — neither conflicting session went public.
+    for (const id of fixture.programSessionIds) {
+      const row = await ctx.db.query.sessions.findFirst({ where: eq(sessions.id, id) });
+      expect(row?.isPublic).toBe(false);
+      expect(row?.publishedAt).toBeNull();
+    }
+
+    // And the operator can see WHICH session is held and WHY.
+    const landing = new URL(location, BASE).toString();
+    const data = await load(landing);
+    const holds = data.publishHolds.map((hold) => hold.reasons.join(" "));
+    expect(holds.length).toBe(2);
+    expect(holds.every((reason) => reason.includes("Room double-booked · Main Stage"))).toBe(
+      true,
+    );
+  });
+
+  it("MUST NOT FIRE: force=1 publishes the double-booked pair anyway", async () => {
+    await draftRoomOverlap();
+
+    const response = (await post({
+      intent: "publish-all",
+      view: "list",
+      force: "1",
+    })) as Response;
+    expect(String(response.headers.get("location"))).toContain("published=2");
+
+    for (const id of fixture.programSessionIds) {
+      const row = await ctx.db.query.sessions.findFirst({ where: eq(sessions.id, id) });
+      expect(row?.isPublic).toBe(true);
+    }
+  });
+
+  it("MUST NOT FIRE: an ADVISORY track overlap still publishes, and still warns", async () => {
+    /*
+     * The must-still-fire twin of the gate above. If the release gate ever
+     * widened to every conflict kind, this case would go red — which is the
+     * point: `warn=conflict` on publish must survive #70 for advisory kinds.
+     */
+    await draftTrackOverlap();
+    expect((await load()).counts.conflicts).toBe(1);
+
+    const response = (await post({ intent: "publish-all", view: "list" })) as Response;
+    const location = String(response.headers.get("location"));
+
+    expect(location).toContain("published=2");
+    expect(location).toContain("blocked=0");
+    expect(location).toContain("warn=conflict");
+
+    // Advisory never gates: both went public.
     for (const id of fixture.programSessionIds) {
       const row = await ctx.db.query.sessions.findFirst({ where: eq(sessions.id, id) });
       expect(row?.isPublic).toBe(true);
@@ -695,6 +843,7 @@ describe("render: zero states", () => {
         notice={null}
         warning={null}
         heldForUninformed={[]}
+        publishHolds={[]}
       />,
     );
     // Product copy, not a developer instruction (the de-scaffolding gate in
@@ -720,6 +869,7 @@ describe("render: zero states", () => {
         notice={null}
         warning={null}
         heldForUninformed={[]}
+        publishHolds={[]}
       />,
     );
     expect(markup).toContain("This event has no dates yet");
