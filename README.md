@@ -9,6 +9,10 @@
 
 </div>
 
+> **Archived hackathon project.** Callboard was built in August 2026 for the AI Engineer
+> “Kill My SaaS” challenge. It is no longer maintained, and the hosted demo and project site
+> were taken offline in October 2026, so the `callboardhq.com` links below no longer resolve.
+> The code stays MIT-licensed: see [Local development](#local-development) to run it yourself.
 
 Open-source speaker and call-for-proposals management for events.
 
@@ -22,7 +26,7 @@ self-hostable alternative to Sessionboard.
 
 ## Try the demo
 
-**Live demo: <https://demo.callboardhq.com>** · **Project site: <https://callboardhq.com>**
+**The hosted demo and project site are offline (October 2026).** During judging they ran at `demo.callboardhq.com` and `callboardhq.com`; the steps below describe that demo and work against a local or self-hosted copy.
 
 - Event page: <https://demo.callboardhq.com/e/frontier-ai-summit-2026>
 - One-click judge roles (organizer and speaker): <https://demo.callboardhq.com/demo>
